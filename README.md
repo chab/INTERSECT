@@ -1,227 +1,215 @@
 # INTERSECT
 
-A nondestructive, time-stretching, and intersecting sample slicer plugin with independent per-slice parameter control.
+INTERSECT is a sample slicer instrument plugin (VST3/AU/Standalone) with per-slice locking, multiple time/pitch algorithms, and MIDI-triggered slice playback.
 
 ![INTERSECT screenshot](.github/assets/screenshot.png)
 
-## Features
+## Table of Contents
 
-- **Intersecting sample slicing** - Place slices freely on the waveform, independent of other slices.
-- **Drag-and-drop sample loading** - WAV, OGG, AIFF, FLAC, MP3.
-- **Asynchronous sample loading** - Decode/load runs off the audio thread for safer live use.
-- **Slice-based playback** - Create regions with start/end points, each mapped to a MIDI note.
-- **Parameter inheritance** - Slices inherit sample-level defaults (BPM, pitch, ADSR, mute group, etc.) unless individually overridden.
-- **Fine tuning (cents detune)** - Sample-level and per-slice detune exposed as **TUNE** (`Xct`).
-- **Three stretch algorithms:**
-  - **Repitch** - Classic sample-rate manipulation where pitch and speed are linked.
-  - **Stretch** - Independent pitch and time control via [Signalsmith Stretch](https://github.com/Signalsmith-Audio/signalsmith-stretch), with tonality, formant shift, and formant compensation controls.
-  - **Bungee** - Grain-based time-stretch via [Bungee](https://github.com/bungee-audio-stretch/bungee), with adjustable grain mode (Fast / Normal / Smooth).
-- **Lazy chop** - Play the sample continuously and place slice boundaries in real time by pressing MIDI keys.
-- **Auto chop** - Split slices equally (2-128 divisions) or detect transients with adjustable sensitivity and live preview.
-- **Snap-to-zero-crossing** - Click-free slice boundaries (ZX button).
-- **Undo/redo** - Snapshot-based undo/redo for all slice and parameter changes.
-- **SET BPM** - Calculate BPM from slice length and a musical time unit (16 bars down to 1/16 note).
-- **Mute groups** - Voices in the same group cut each other off.
-- **One-shot mode** - Voice plays to the end of the slice regardless of note-off; available per-slice or as a sample-level default.
-- **Follow MIDI** - Optionally auto-select a slice in the UI when its MIDI note is played (FM button).
-- **Duplicate slice** - Clone a slice with all locked parameters (button or `Ctrl+drag` in waveform).
-- **Shift-click waveform preview** - Hold `Shift` and click the waveform to audition from cursor position.
-- **Panic** - Dedicated PANIC button to immediately kill active voices.
-- **Hi-DPI scaling** - Adjustable UI scale factor (0.5x to 3x).
-- **Session recall** - All parameters/slices are saved; sample file paths are restored on project load.
-- **Custom theming** - Dark, light, and custom themes.
-- **DAW transport stop handling** - Responds to All Notes Off (CC 123) and All Sound Off (CC 120), including one-shot-safe behavior.
+- [Quick Start](#quick-start)
+- [Installation](#installation)
+- [Workflow Basics](#workflow-basics)
+- [Controls and Shortcuts Reference](#controls-and-shortcuts-reference)
+- [Theme Customization](#theme-customization)
+- [Build from Source](#build-from-source)
+- [Dependencies](#dependencies)
+- [License](#license)
+- [Support / Known Limitations](#support--known-limitations)
 
-## Install
+## Quick Start
 
-Download the latest release zip for your platform from the [Releases](https://github.com/tucktuckg00se/INTERSECT/releases) page and extract it.
+1. Load a sample with **LOAD** or drag an audio file onto the waveform.
+2. Create slices with **ADD** (draw), **LAZY** (real-time chop), or **AUTO** (transients/equal split).
+3. Play slices from MIDI. New slices are mapped from root note `C2` (MIDI `36`) upward.
+4. Use the second bar to lock per-slice overrides (lock icon) or inherit sample defaults.
+5. Toggle **FM** if you want played MIDI notes to auto-select slices in the UI.
 
-Copy `INTERSECT.vst3` to your VST3 folder or run INTERSECT as a standalone app:
+## Installation
 
-### Windows
+Download the latest release zip from [Releases](https://github.com/tucktuckg00se/INTERSECT/releases), then place plugin files in your system plugin folders.
 
-```
-C:\Program Files\Common Files\VST3\
-```
+### Release package contents
 
-Or run `INTERSECT.exe` as a standalone app.
+| Platform | Included binaries |
+| --- | --- |
+| Windows x64 | `INTERSECT.vst3`, `INTERSECT.exe` |
+| Linux x64 | `INTERSECT.vst3`, `INTERSECT` (standalone) |
+| macOS arm64 | `INTERSECT.vst3`, `INTERSECT.component`, `INTERSECT.app` |
+| macOS x64 | `INTERSECT.vst3`, `INTERSECT.component`, `INTERSECT.app` |
 
-### macOS
+### Plugin install paths
 
-```
-~/Library/Audio/Plug-Ins/VST3/
-```
+| Format | Windows | macOS | Linux |
+| --- | --- | --- | --- |
+| VST3 | `C:\Program Files\Common Files\VST3\` | `~/Library/Audio/Plug-Ins/VST3/` | `~/.vst3/` |
+| AU | n/a | `~/Library/Audio/Plug-Ins/Components/` | n/a |
 
-For AU, copy `INTERSECT.component` to:
+After copying files, rescan plugins in your DAW.
 
-```
-~/Library/Audio/Plug-Ins/Components/
+### macOS unsigned build note
+
+If macOS reports that INTERSECT is damaged or blocked, clear quarantine flags:
+
+```bash
+xattr -cr ~/Library/Audio/Plug-Ins/VST3/INTERSECT.vst3
+xattr -cr ~/Library/Audio/Plug-Ins/Components/INTERSECT.component
+xattr -cr /Applications/INTERSECT.app
 ```
 
-> **"INTERSECT is damaged and can't be opened"** - macOS blocks unsigned apps downloaded from the internet. Run this in Terminal after copying the files, replacing the path with wherever you put them:
->
-> ```bash
-> xattr -cr ~/Library/Audio/Plug-Ins/VST3/INTERSECT.vst3
-> xattr -cr ~/Library/Audio/Plug-Ins/Components/INTERSECT.component
-> xattr -cr /Applications/INTERSECT.app
-> ```
->
-> Then relaunch/rescan. This strips the quarantine flag macOS adds to downloaded files.
+## Workflow Basics
 
-### Linux
+1. **One sample at a time:** INTERSECT loads one audio file per instance (`.wav`, `.ogg`, `.aiff`, `.flac`, `.mp3`).
+2. **Slice creation:** Draw slices manually, chop live with **LAZY**, or split via **AUTO**.
+3. **Inheritance model:** Header controls are sample defaults. Slice controls can lock overrides per field.
+4. **Playback model:** MIDI triggers slices by note mapping; mute groups can choke voices in the same group.
+5. **Load behavior:** File decoding/loading is asynchronous (off the audio thread).
+6. **Algorithms:**
+   - `Repitch`: pitch and speed are linked.
+   - `Stretch`: independent time/pitch via Signalsmith Stretch (`TONAL`, `FMNT`, `FMNT C`).
+   - `Bungee`: granular stretch mode with `GRAIN` choices (`Fast`, `Normal`, `Smooth`).
+7. **Repitch + Stretch interaction:** when `ALGO=Repitch` and `STRETCH=ON`, `PITCH`/`TUNE` become BPM-driven read-only displays.
+8. **SET BPM:** compute BPM from selected slice length (or full sample context) against a musical duration.
+9. **MIDI host stop handling:** responds to `All Notes Off (CC 123)` and `All Sound Off (CC 120)`.
+10. **Undo/redo:** snapshot-based history for slice and parameter edits.
 
-```
-~/.vst3/
-```
+## Controls and Shortcuts Reference
 
-After installing, rescan plugins in your DAW to pick up INTERSECT.
+### Header Bar (sample defaults)
 
-## Usage
+| Control | Function | Notes |
+| --- | --- | --- |
+| `BPM` | Sample default BPM | Drag up/down, double-click to type |
+| `SET BPM` | Calculate BPM from duration menu | 16 bars to 1/16 note |
+| `PITCH` | Semitone shift | `-24` to `+24` |
+| `TUNE` | Fine detune | `-100` to `+100` cents |
+| `ALGO` | Algorithm selector | `Repitch`, `Stretch`, `Bungee` |
+| `TONAL` | Tonality limit (Stretch only) | `0` to `8000` Hz |
+| `FMNT` | Formant shift (Stretch only) | `-24` to `+24` semitones |
+| `FMNT C` | Formant compensation (Stretch only) | Toggle |
+| `GRAIN` | Grain mode (Bungee only) | `Fast`, `Normal`, `Smooth` |
+| `STRETCH` | Tempo-sync stretch toggle | Toggle |
+| `1SHOT` | One-shot playback default | Plays through slice regardless of note-off |
+| `ATK / DEC / SUS / REL` | ADSR defaults | Drag or type |
+| `TAIL` | Release-tail toggle | Continue reading past slice edge during release |
+| `REV` | Reverse playback toggle | Toggle |
+| `LOOP` | Loop mode | `OFF`, `LOOP`, `PP` |
+| `MUTE` | Mute group default | `0` to `32` |
+| `GAIN` | Master gain | `-100` to `+24` dB |
+| `VOICES` | Max playable voices | `1` to `31` |
+| `LOAD` | Open file chooser | Replaces current sample |
+| `PANIC` | Kill active voices immediately | Also stops lazy chop |
+| `UNDO / REDO` | History navigation | Buttons in header |
+| `UI` | Theme and UI scale popup | Theme chooser and `+/- 0.25` scale |
+| Sample info text | Load/relink shortcut | Click sample name area to load; missing file text opens relink dialog |
 
-### Getting Started
+### Slice Control Bar (selected slice)
 
-1. **Load a sample** - Drag and drop an audio file onto the waveform area, or click **LOAD**.
-2. **Create slices** - Use **ADD** to draw regions on the waveform, or **LAZY** to chop in real time.
-3. **Play slices** - Each slice is mapped to a MIDI note starting at C2 (note 36).
+| Control | Function | Notes |
+| --- | --- | --- |
+| Lock icon (per field) | Toggle inheritance vs override | Locked fields use per-slice value |
+| `BPM`, `PITCH`, `TUNE`, `ALGO` | Per-slice core settings | Mirror sample defaults when unlocked |
+| `SET BPM` | Slice BPM from duration menu | Applies to selected slice |
+| `TONAL`, `FMNT`, `FMNT C` | Stretch-specific per-slice controls | Visible when `ALGO=Stretch` |
+| `GRAIN` | Bungee-specific per-slice control | Visible when `ALGO=Bungee` |
+| `STRETCH`, `1SHOT` | Per-slice toggles | Lockable |
+| `ATK / DEC / SUS / REL` | Per-slice envelope | Lockable |
+| `TAIL`, `REV`, `LOOP`, `MUTE` | Per-slice behavior controls | Lockable |
+| `GAIN` | Per-slice gain override | Lockable, dB |
+| `OUT` | Per-slice output bus | `1` to `16` (host bus availability applies) |
+| `MIDI` | Slice MIDI note | Editable per slice |
+| `ROOT` | Root note for new slices | Editable when no slices exist |
 
-### Creating Slices
+### Action Bar
 
-- **ADD** - Click the button, then click and drag on the waveform to draw a slice region.
-- **Alt + drag** - Hold `Alt` and drag on the waveform for quick slice drawing (without toggling ADD).
-- **LAZY** - Starts continuous playback; press any MIDI key to place a slice boundary at the current playhead. Click **STOP** when done. The final slice closes at the end of the sample.
-- **AUTO** - Opens the Auto Chop bar at the bottom of the waveform:
-  - **SENS** slider (0-100%) - Adjusts transient detection sensitivity with live preview lines on the waveform.
-  - **SPLIT TRANSIENTS** - Splits the selected slice at detected transient positions.
-  - **DIV** field - Number of equal parts for time-based splitting (2-128).
-  - **SPLIT EQUAL** - Splits the selected slice into equal divisions.
-- **COPY** - Duplicates the selected slice with all its parameters.
-- **DEL** - Deletes the selected slice.
+| Button | Function |
+| --- | --- |
+| `ADD` | Toggle draw-slice mode |
+| `LAZY` / `STOP` | Start/stop real-time lazy chopping |
+| `AUTO` | Open Auto Chop panel |
+| `COPY` | Duplicate selected slice |
+| `DEL` | Delete selected slice |
+| `ZX` | Snap edits to nearest zero crossing |
+| `FM` | Follow MIDI (auto-select played slice) |
 
-### Editing Slices
+### Auto Chop Panel
 
-- Drag the **S** handle (left edge) or **E** handle (right edge) to resize a slice.
-- Drag the middle of a slice to move it.
-- Hold **Ctrl** while dragging a selected slice to duplicate it at a new position.
-- Click a slice in the waveform or slice lane to select it.
-- Toggle **ZX** to snap slice edges to zero-crossings (eliminates clicks).
+| Control | Function |
+| --- | --- |
+| `SENS` | Transient sensitivity (`0-100%`) with live marker preview |
+| `SPLIT TRANSIENTS` | Split selected slice at detected transients |
+| `DIV` | Equal split count (`2-128`) |
+| `SPLIT EQUAL` | Split selected slice into equal divisions |
+| `CANCEL` | Close panel without applying |
 
-### Keyboard / Mouse Shortcuts
+### Waveform and Mouse Gestures
 
-- **Scroll wheel** - Zoom in/out (anchored to cursor position).
-- **Shift + scroll wheel** - Scroll horizontally.
-- **Middle-click drag** - Simultaneous scroll (horizontal) and zoom (vertical).
-- **Shift + click waveform** - Preview playback from cursor position.
-- **Ctrl + drag selected slice** - Duplicate slice to dragged location.
-- **Alt + drag waveform** - Draw slice directly.
+| Gesture | Result |
+| --- | --- |
+| Drag-and-drop file | Load sample |
+| Click slice | Select slice |
+| Drag `S` / `E` edge handles | Resize selected slice |
+| Drag inside selected slice | Move slice |
+| `Ctrl` + drag selected slice | Duplicate slice to new position |
+| `Alt` + drag waveform | Temporary draw-slice gesture |
+| `Shift` + click waveform | Preview from clicked sample position |
+| Mouse wheel | Cursor-anchored zoom |
+| `Shift` + mouse wheel | Horizontal scroll |
+| Middle-button drag | Combined horizontal scroll + vertical zoom |
 
-### Sample Controls (top bar)
+### Keyboard Shortcuts
 
-These are defaults inherited by all slices:
+| Shortcut | Action |
+| --- | --- |
+| `Ctrl/Cmd + Z` | Undo |
+| `Ctrl/Cmd + Shift + Z` | Redo |
+| `A` | Toggle `ADD` mode |
+| `L` | Toggle `LAZY` / `STOP` |
+| `C` | Toggle Auto Chop panel |
+| `D` | Duplicate selected slice |
+| `Delete` / `Backspace` | Delete selected slice |
+| `Z` | Toggle `ZX` |
+| `F` | Toggle `FM` |
+| `Right Arrow` or `Tab` | Select next slice |
+| `Left Arrow` or `Shift + Tab` | Select previous slice |
+| `Esc` | Close Auto Chop panel |
 
-- **BPM** - Sample tempo (drag vertically or double-click to type). Drag step is `1`, or `5` with `Shift`.
-- **PITCH** - Pitch shift in semitones (`Xst`, -24 to +24).
-- **TUNE** - Fine pitch in cents (`Xct`, -100 to +100).
-- **ALGO** - Click to cycle: Repitch (speed=pitch), Stretch (independent pitch/time), or Bungee (granular).
-- **STRETCH** - Enable time-stretching (syncs playback to DAW tempo), shown next to ALGO.
-- **Repitch + Stretch note** - When both are active, **PITCH** and **TUNE** become BPM-driven read-only displays.
-- **1SHOT** - One-shot mode: voice plays to the end of the slice regardless of note-off.
-- **ATK / DEC / SUS / REL** - ADSR amplitude envelope. Drag step is `1`, or `5` with `Shift`.
-- **LOOP** - Loop mode: OFF, LOOP (repeat), or PP (ping-pong bounce). Works in all algorithm modes.
-- **MUTE** - Mute group (voices in the same group cut each other off).
-- **GAIN** - Master gain in dB (-100 to +24 dB).
-- **TAIL** - Release tail. When enabled, audio continues reading past the slice boundary during release.
-- **PANIC** - Immediately kills active voices.
+## Theme Customization
 
-### Slice Controls (second bar)
+INTERSECT supports custom `.intersectstyle` themes. On first launch it creates default `dark.intersectstyle` and `light.intersectstyle` in the user theme directory.
 
-Per-slice overrides. Each parameter has an override button to lock a per-slice value instead of inheriting the sample default.
-
-Includes per-slice **TUNE** and the same BPM/ADSR drag stepping behavior (`1`, or `5` with `Shift`).
-
-### SET BPM
-
-Calculates BPM from a slice's length. Select a slice, click **SET BPM**, and choose a time division (16 bars, 1 bar, 1/4 note, etc.). INTERSECT sets BPM so that the slice equals the chosen duration at your DAW tempo.
-
-### Follow MIDI
-
-Click the **FM** button to toggle. When active, playing a MIDI note automatically selects that slice in the UI.
-
-### Custom Themes
-
-INTERSECT supports custom color themes via `.intersectstyle` files. On first launch, the plugin creates default `dark.intersectstyle` and `light.intersectstyle` in the themes folder.
-
-| OS | Path |
-|----|------|
+| OS | Theme folder |
+| --- | --- |
 | Windows | `%APPDATA%\Roaming\INTERSECT\themes\` |
 | macOS | `~/Library/Application Support/INTERSECT/themes/` |
 | Linux | `~/.config/INTERSECT/themes/` |
 
-To create a custom theme:
+Create a custom theme:
 
-1. Copy one of the starter files from [`themes/`](themes/) (or from the local themes folder) and rename it, e.g. `mytheme.intersectstyle`.
-2. Change the `name:` field to something unique (this is what appears in the theme picker).
-3. Edit the 6-digit hex color values (`RRGGBB`).
-4. Place the file in the themes folder listed above.
-5. Restart the plugin. Your theme appears in the theme selector (right-click the header bar).
+1. Copy one of the starter files from [`themes/`](themes/) and rename it, for example `mytheme.intersectstyle`.
+2. Set a unique `name:` value (used in the UI theme list).
+3. Edit colors as 6-digit hex `RRGGBB`.
+4. Place the file in your user theme folder.
+5. Restart the plugin, then use the **UI** button in the header to select the theme.
 
-## Build
+The **UI** button popup also controls interface scale (`0.5x` to `3.0x` in `0.25` steps).
 
-Requires CMake 3.22+ and a C++20 compiler.
+## Build from Source
 
-### Windows
+### Prerequisites
 
-**Prerequisites:** [Visual Studio 2022](https://visualstudio.microsoft.com/) (Desktop development with C++ workload), [CMake 3.22+](https://cmake.org/download/)
+- CMake `3.22+`
+- C++20 compiler/toolchain
+- Git submodules initialized
+- Platform SDK requirements for JUCE (Visual Studio on Windows, Xcode/CLT on macOS, required dev packages on Linux)
 
-```bash
-git clone --recursive git@github.com:tucktuckg00se/INTERSECT.git
-cd INTERSECT
-cmake -B build
-cmake --build build --config Release
-```
+### Build commands
 
-**Output:** `build/Intersect_artefacts/Release/VST3/INTERSECT.vst3`
-
-### macOS
-
-**Prerequisites:** Xcode 14+ (install Command Line Tools via `xcode-select --install`), [CMake 3.22+](https://cmake.org/download/) (`brew install cmake`)
+Linux users may need JUCE/system libraries first. On Debian/Ubuntu:
 
 ```bash
-git clone --recursive git@github.com:tucktuckg00se/INTERSECT.git
-cd INTERSECT
-cmake -B build
-cmake --build build --config Release
-```
-
-**Output:**
-- VST3: `build/Intersect_artefacts/Release/VST3/INTERSECT.vst3`
-- AU: `build/Intersect_artefacts/Release/AU/INTERSECT.component`
-
-### Linux
-
-**Prerequisites:** GCC 12+ or Clang 15+, CMake 3.22+, and JUCE system dependencies.
-
-**Debian / Ubuntu:**
-
-```bash
-sudo apt install build-essential cmake libasound2-dev libfreetype6-dev \
-  libx11-dev libxcomposite-dev libxcursor-dev libxinerama-dev \
-  libxrandr-dev libxrender-dev libwebkit2gtk-4.0-dev libglu1-mesa-dev
-```
-
-**Fedora:**
-
-```bash
-sudo dnf install gcc-c++ cmake alsa-lib-devel freetype-devel \
-  libX11-devel libXcomposite-devel libXcursor-devel libXinerama-devel \
-  libXrandr-devel libXrender-devel webkit2gtk4.0-devel mesa-libGLU-devel
-```
-
-**Arch:**
-
-```bash
-sudo pacman -S base-devel cmake alsa-lib freetype2 \
-  libx11 libxcomposite libxcursor libxinerama libxrandr libxrender \
-  webkit2gtk-4.1 glu
+sudo apt-get update
+sudo apt-get install -y libasound2-dev libfreetype-dev libx11-dev libxrandr-dev \
+  libxcursor-dev libxinerama-dev libwebkit2gtk-4.1-dev libcurl4-openssl-dev
 ```
 
 Then build:
@@ -233,21 +221,38 @@ cmake -B build
 cmake --build build --config Release
 ```
 
-**Output:** `build/Intersect_artefacts/Release/VST3/INTERSECT.vst3`
+### Build outputs
 
-Builds VST3, AU (macOS), and Standalone targets.
+- VST3: `build/Intersect_artefacts/Release/VST3/INTERSECT.vst3`
+- Standalone:
+  - Windows: `build/Intersect_artefacts/Release/Standalone/INTERSECT.exe`
+  - Linux: `build/Intersect_artefacts/Release/Standalone/INTERSECT`
+  - macOS: `build/Intersect_artefacts/Release/Standalone/INTERSECT.app`
+- AU (macOS): `build/Intersect_artefacts/Release/AU/INTERSECT.component`
+
+### Release workflow (repo maintainers)
+
+Pushing a tag matching `v*` triggers the GitHub Actions release workflow, which builds and packages:
+
+- Windows x64
+- Linux x64
+- macOS arm64
+- macOS x64
 
 ## Dependencies
 
 - [JUCE](https://github.com/juce-framework/JUCE) (git submodule)
-- [Signalsmith Stretch](https://github.com/Signalsmith-Audio/signalsmith-stretch) (git submodule, MIT license)
-- [Signalsmith Linear](https://github.com/Signalsmith-Audio/linear) (git submodule, dependency of Signalsmith Stretch)
-- [Bungee](https://github.com/bungee-audio-stretch/bungee) (git submodule, MPL-2.0 license)
-
-## USE AT YOUR OWN RISK
-
-This plugin is 100% vibe-coded.
+- [Signalsmith Stretch](https://github.com/Signalsmith-Audio/signalsmith-stretch) (MIT)
+- [Signalsmith Linear](https://github.com/Signalsmith-Audio/linear) (dependency of Signalsmith Stretch)
+- [Bungee](https://github.com/bungee-audio-stretch/bungee) (MPL-2.0)
 
 ## License
 
-This project is licensed under the [GNU General Public License v3.0](LICENSE).
+INTERSECT is licensed under the [GNU General Public License v3.0](LICENSE).
+
+## Support / Known Limitations
+
+- INTERSECT currently works with one loaded sample per plugin instance.
+- Project recall stores sample file paths; if files move, relink is required.
+- Builds are unsigned; platform security prompts (especially macOS) may require manual trust/quarantine removal.
+- Report bugs or request features via GitHub Issues on this repository.
