@@ -2,6 +2,7 @@
 #include <juce_audio_basics/juce_audio_basics.h>
 #include <juce_audio_formats/juce_audio_formats.h>
 #include <array>
+#include <memory>
 #include <vector>
 
 class SampleData
@@ -16,8 +17,19 @@ public:
 
     static constexpr int kNumMipmapLevels = 3;
 
+    struct DecodedSample
+    {
+        juce::AudioBuffer<float> buffer;  // always stereo
+        std::array<PeakMipmap, kNumMipmapLevels> peakMipmaps;
+        juce::String fileName;
+        juce::String filePath;
+    };
+
     SampleData();
 
+    static std::unique_ptr<DecodedSample> decodeFromFile (const juce::File& file,
+                                                           double projectSampleRate);
+    void applyDecodedSample (std::unique_ptr<DecodedSample> decoded);
     bool loadFromFile (const juce::File& file, double projectSampleRate);
 
     float getInterpolatedSample (double pos, int channel) const;
@@ -39,7 +51,6 @@ private:
 
     juce::AudioBuffer<float> buffer;  // always stereo
     std::array<PeakMipmap, kNumMipmapLevels> peakMipmaps;
-    juce::AudioFormatManager formatManager;
     juce::String loadedFileName;
     juce::String loadedFilePath;
     bool loaded = false;

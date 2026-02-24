@@ -21,6 +21,13 @@ juce::AudioProcessorValueTreeState::ParameterLayout ParamLayout::createLayout()
         juce::NormalisableRange<float> (-24.0f, 24.0f, 0.01f),
         0.0f));
 
+    // Sample Cents Detune: -100..+100 cents, step 0.1, default 0
+    params.push_back (std::make_unique<juce::AudioParameterFloat> (
+        juce::ParameterID { ParamIds::defaultCentsDetune, 1 },
+        "Sample Cents Detune",
+        juce::NormalisableRange<float> (-100.0f, 100.0f, 0.1f),
+        0.0f));
+
     // Sample Algorithm: 0=Repitch, 1=Stretch, 2=Bungee
     params.push_back (std::make_unique<juce::AudioParameterChoice> (
         juce::ParameterID { ParamIds::defaultAlgorithm, 1 },
@@ -133,11 +140,11 @@ juce::AudioProcessorValueTreeState::ParameterLayout ParamLayout::createLayout()
 
     // ── Global utility ─────────────────────────────────────────────────────────
 
-    // Max Voices: 1..32, default 16
+    // Max Voices: 1..31 playable voices, preview voice is reserved
     params.push_back (std::make_unique<juce::AudioParameterInt> (
         juce::ParameterID { ParamIds::maxVoices, 1 },
         "Max Voices",
-        1, 32, 16));
+        1, 31, 16));
 
     // UI Scale: 0.5..3.0, default 1.0, step 0.25
     params.push_back (std::make_unique<juce::AudioParameterFloat> (

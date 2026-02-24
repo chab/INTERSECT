@@ -1,5 +1,6 @@
 #pragma once
 #include <juce_audio_processors/juce_audio_processors.h>
+#include <array>
 #include <vector>
 #include "audio/SampleData.h"
 #include "audio/SliceManager.h"
@@ -13,7 +14,7 @@ class IntersectProcessor : public juce::AudioProcessor
 {
 public:
     IntersectProcessor();
-    ~IntersectProcessor() override = default;
+    ~IntersectProcessor() override;
 
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;
     void releaseResources() override;
@@ -49,13 +50,23 @@ public:
         CmdStretch,
         CmdToggleLock,
         CmdSetSliceParam,
+        CmdSetSliceBounds,
         CmdDuplicateSlice,
         CmdSplitSlice,
         CmdTransientChop,
         CmdRelinkFile,
+        CmdFileLoadCompleted,
+        CmdFileLoadFailed,
         CmdUndo,
         CmdRedo,
         CmdBeginGesture,
+        CmdPanic,
+    };
+
+    enum LoadKind
+    {
+        LoadKindReplace = 0,
+        LoadKindRelink = 1,
     };
 
     // Param field identifiers for CmdSetSliceParam
@@ -81,6 +92,7 @@ public:
         FieldOutputBus,
         FieldLoop,
         FieldOneShot,
+        FieldCentsDetune,
     };
 
     struct Command
@@ -90,7 +102,9 @@ public:
         int intParam2 = 0;
         float floatParam1 = 0.0f;
         juce::File fileParam;
-        std::vector<int> positions;
+        // Fixed-size array avoids heap allocation/deallocation on the audio thread.
+        std::array<int, 128> positions {};
+        int numPositions = 0;
     };
 
     void pushCommand (Command cmd);
@@ -119,6 +133,9 @@ public:
     // Undo/redo
     UndoManager undoMgr;
 
+    // Shift preview request: -2=no-op, -1=stop, >=0=start at this sample position
+    std::atomic<int> shiftPreviewRequest { -2 };
+
     // Missing sample state (for relink UI)
     std::atomic<bool> sampleMissing { false };
     juce::String missingFilePath;
@@ -127,6 +144,8 @@ private:
     void drainCommands();
     void handleCommand (const Command& cmd);
     void processMidi (const juce::MidiBuffer& midi);
+    void requestSampleLoad (const juce::File& file, LoadKind kind);
+    void clearVoicesBeforeSampleSwap();
     UndoManager::Snapshot makeSnapshot();
     void captureSnapshot();
     void restoreSnapshot (const UndoManager::Snapshot& snap);
@@ -135,8 +154,20 @@ private:
     static constexpr int kFifoSize = 64;
     std::array<Command, kFifoSize> commandBuffer;
     juce::AbstractFifo commandFifo { kFifoSize };
+    std::atomic<uint32_t> droppedCommandCount { 0 };
+    std::atomic<uint32_t> droppedCommandTotal { 0 };
 
     double currentSampleRate = 44100.0;
+    bool gestureSnapshotCaptured = false;
+    int blocksSinceGestureActivity = 0;
+
+    juce::ThreadPool fileLoadPool { 1 };
+    std::atomic<int> nextLoadToken { 0 };
+    std::atomic<int> latestLoadToken { 0 };
+    std::atomic<int> latestLoadKind { (int) LoadKindReplace };
+    std::atomic<SampleData::DecodedSample*> completedLoadData { nullptr };
+
+    bool heldNotes[128] = {};
 
     // Cached parameter pointers
     std::atomic<float>* masterVolParam  = nullptr;
@@ -158,6 +189,7 @@ private:
     std::atomic<float>* loopParam        = nullptr;
     std::atomic<float>* oneShotParam     = nullptr;
     std::atomic<float>* maxVoicesParam   = nullptr;
+    std::atomic<float>* centsDetuneParam = nullptr;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (IntersectProcessor)
 };

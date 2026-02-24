@@ -29,22 +29,25 @@ void LazyChopEngine::start (int sampleLen, SliceManager& sliceMgr,
 void LazyChopEngine::startPreview (VoicePool& voicePool, int fromPos)
 {
     auto& v = voicePool.getVoice (getPreviewVoiceIndex());
-    v.active      = true;
-    v.sliceIdx    = -1;
-    v.position    = (double) fromPos;
-    v.direction   = 1;
-    v.velocity    = 1.0f;
-    v.midiNote    = -1;
-    v.startSample = 0;
-    v.endSample   = sampleLength;
-    v.pingPong    = false;
-    v.muteGroup   = 0;
+    v.active        = true;
+    v.sliceIdx      = -1;
+    v.position      = (double) fromPos;
+    v.direction     = 1;
+    v.velocity      = 1.0f;
+    v.midiNote      = -1;
+    v.startSample   = 0;
+    v.endSample     = sampleLength;
+    v.bufferEnd     = sampleLength;
+    v.pingPong      = false;
+    v.muteGroup     = 0;
     v.stretchActive = false;
     v.bungeeActive  = false;
-    v.age         = 0;
-    v.looping     = true;
-    v.volume      = 1.0f;
-    v.speed       = 1.0;
+    v.looping       = true;
+    v.releaseTail   = false;
+    v.oneShot       = false;
+    v.bungeePPFade  = 0;
+    v.volume        = 1.0f;
+    v.speed         = 1.0;
 
     // Apply stretch from cached sample-level params
     const auto& p = cachedParams;
@@ -109,7 +112,7 @@ void LazyChopEngine::startPreview (VoicePool& voicePool, int fromPos)
     }
 
     // Sustain at half volume
-    v.envelope.noteOn (0.0f, 0.0f, 0.5f, 0.02f);
+    v.envelope.noteOn (0.0f, 0.0f, 0.5f, 0.02f, cachedParams.sampleRate);
 }
 
 void LazyChopEngine::stop (VoicePool& voicePool, SliceManager& /*sliceMgr*/)

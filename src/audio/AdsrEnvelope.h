@@ -1,18 +1,21 @@
 #pragma once
+#include <cmath>
 
 class AdsrEnvelope
 {
 public:
     enum State { Attack, Decay, Sustain, Release, Done };
 
-    void noteOn (float attack, float decay, float sustain, float release)
+    // sampleRate must be passed so coefficients are pre-computed; avoids per-sample exp() calls.
+    void noteOn (float attackSec, float decaySec, float sustain, float releaseSec, double sr)
     {
-        attackTime  = attack;
-        decayTime   = decay;
-        sustainLvl  = sustain;
-        releaseTime = release;
-        state       = Attack;
-        level       = 0.0f;
+        sampleRate   = sr;
+        attackCoeff  = makeCoeff (attackSec);
+        decayCoeff   = makeCoeff (decaySec);
+        sustainLvl   = sustain < 0.0f ? 0.0f : (sustain > 1.0f ? 1.0f : sustain);
+        releaseCoeff = makeCoeff (releaseSec);
+        state        = Attack;
+        level        = 0.0f;
     }
 
     void noteOff()
@@ -21,21 +24,21 @@ public:
             state = Release;
     }
 
-    void forceRelease (float fastReleaseSec)
+    void forceRelease (float timeSec, double sr)
     {
-        state = Release;
-        releaseTime = fastReleaseSec;
+        sampleRate   = sr;
+        releaseCoeff = makeCoeff (timeSec);
+        state        = Release;
     }
 
-    float processSample (double sampleRate)
+    float processSample()
     {
-        float rate;
-
         switch (state)
         {
             case Attack:
-                rate = attackTime > 0.0001f ? 1.0f / (attackTime * (float) sampleRate) : 1.0f;
-                level += rate;
+                // One-pole filter targeting slightly above 1.0 so the curve reaches 1.0
+                // within the specified attack time rather than asymptotically approaching it.
+                level += attackCoeff * (1.01f - level);
                 if (level >= 1.0f)
                 {
                     level = 1.0f;
@@ -44,9 +47,8 @@ public:
                 break;
 
             case Decay:
-                rate = decayTime > 0.0001f ? 1.0f / (decayTime * (float) sampleRate) : 1.0f;
-                level -= rate;
-                if (level <= sustainLvl)
+                level += decayCoeff * (sustainLvl - level);
+                if (level <= sustainLvl + 0.001f)
                 {
                     level = sustainLvl;
                     state = Sustain;
@@ -58,9 +60,9 @@ public:
                 break;
 
             case Release:
-                rate = releaseTime > 0.0001f ? 1.0f / (releaseTime * (float) sampleRate) : 1.0f;
-                level -= rate;
-                if (level <= 0.0f)
+                // Multiply by the per-sample decay factor = exp(-5 / (releaseTime * sr))
+                level *= (1.0f - releaseCoeff);
+                if (level < 0.00015f)
                 {
                     level = 0.0f;
                     state = Done;
@@ -72,22 +74,27 @@ public:
                 break;
         }
 
-        // Guard against float accumulation drift
-        if (level < 0.0f) level = 0.0f;
-        if (level > 1.0f) level = 1.0f;
-
         return level;
     }
 
-    bool isDone() const { return state == Done; }
-    State getState() const { return state; }
-    float getLevel() const { return level; }
+    bool  isDone()    const { return state == Done; }
+    State getState()  const { return state; }
+    float getLevel()  const { return level; }
 
 private:
-    State state       = Done;
-    float level       = 0.0f;
-    float attackTime  = 0.0f;
-    float decayTime   = 0.0f;
-    float sustainLvl  = 1.0f;
-    float releaseTime = 0.0f;
+    // One-pole coefficient: after timeSec seconds the envelope is ~99.3% toward its target.
+    float makeCoeff (float timeSec) const
+    {
+        if (timeSec < 0.0001f || sampleRate < 1.0)
+            return 1.0f;
+        return 1.0f - std::exp (-5.0f / (timeSec * (float) sampleRate));
+    }
+
+    State  state        = Done;
+    float  level        = 0.0f;
+    float  attackCoeff  = 1.0f;
+    float  decayCoeff   = 1.0f;
+    float  sustainLvl   = 1.0f;
+    float  releaseCoeff = 1.0f;
+    double sampleRate   = 44100.0;
 };

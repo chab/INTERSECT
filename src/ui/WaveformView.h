@@ -15,7 +15,11 @@ public:
     void mouseDown (const juce::MouseEvent& e) override;
     void mouseDrag (const juce::MouseEvent& e) override;
     void mouseUp (const juce::MouseEvent& e) override;
+    void mouseMove (const juce::MouseEvent& e) override;
+    void mouseEnter (const juce::MouseEvent& e) override;
+    void mouseExit (const juce::MouseEvent& e) override;
     void mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& w) override;
+    void modifierKeysChanged (const juce::ModifierKeys& mods) override;
 
     bool isInterestedInFileDrag (const juce::StringArray& files) override;
     void filesDropped (const juce::StringArray& files, int x, int y) override;
@@ -23,10 +27,15 @@ public:
     void rebuildCacheIfNeeded();
 
     bool sliceDrawMode = false;
+    bool altModeActive = false;
+    bool shiftPreviewActive = false;
     std::vector<int> transientPreviewPositions;
 
 private:
-    enum DragMode { None, DragEdgeLeft, DragEdgeRight, DrawSlice, MoveSlice };
+    enum DragMode { None, DragEdgeLeft, DragEdgeRight, DrawSlice, MoveSlice, DuplicateSlice };
+
+    enum class HoveredEdge { None, Left, Right };
+    HoveredEdge hoveredEdge = HoveredEdge::None;
 
     int pixelToSample (int px) const;
     int sampleToPixel (int sample) const;
@@ -47,6 +56,10 @@ private:
     int drawEnd = 0;
     int dragOffset = 0;    // for MoveSlice: offset from mouse to slice start
     int dragSliceLen = 0;  // for MoveSlice: original slice length
+    int dragPreviewStart = 0; // for edge/move drags: preview start sample
+    int dragPreviewEnd = 0;   // for edge/move drags: preview end sample
+    int ghostStart = 0;    // for DuplicateSlice: ghost overlay start sample
+    int ghostEnd   = 0;    // for DuplicateSlice: ghost overlay end sample
 
     // Middle-mouse drag (scroll+zoom like ScrollZoomBar)
     bool midDragging = false;

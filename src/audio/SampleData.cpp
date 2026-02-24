@@ -1,25 +1,77 @@
 #include "SampleData.h"
+#include <algorithm>
+#include <cmath>
 
-SampleData::SampleData()
+namespace
 {
-    formatManager.registerBasicFormats();
+void buildMipmapsForBuffer (const juce::AudioBuffer<float>& src,
+                            std::array<SampleData::PeakMipmap, SampleData::kNumMipmapLevels>& outMipmaps)
+{
+    int numFrames = src.getNumSamples();
+    if (numFrames <= 0 || src.getNumChannels() < 1)
+    {
+        for (auto& m : outMipmaps)
+        {
+            m.samplesPerPeak = 0;
+            m.maxPeaks.clear();
+            m.minPeaks.clear();
+        }
+        return;
+    }
+
+    const float* dataL = src.getReadPointer (0);
+    const float* dataR = src.getNumChannels() > 1 ? src.getReadPointer (1) : dataL;
+    if (dataL == nullptr)
+        return;
+
+    static constexpr int kBlockSizes[SampleData::kNumMipmapLevels] = { 64, 512, 4096 };
+
+    for (int level = 0; level < SampleData::kNumMipmapLevels; ++level)
+    {
+        auto& m = outMipmaps[(size_t) level];
+        m.samplesPerPeak = kBlockSizes[level];
+        int numPeaks = (numFrames + m.samplesPerPeak - 1) / m.samplesPerPeak;
+        m.maxPeaks.resize ((size_t) numPeaks);
+        m.minPeaks.resize ((size_t) numPeaks);
+
+        for (int i = 0; i < numPeaks; ++i)
+        {
+            int start = i * m.samplesPerPeak;
+            int end = std::min (start + m.samplesPerPeak, numFrames);
+            float hi = -1.0f;
+            float lo = 1.0f;
+            for (int s = start; s < end; ++s)
+            {
+                float val = (dataL[s] + dataR[s]) * 0.5f;
+                if (val > hi) hi = val;
+                if (val < lo) lo = val;
+            }
+            m.maxPeaks[(size_t) i] = hi;
+            m.minPeaks[(size_t) i] = lo;
+        }
+    }
 }
+} // namespace
 
-bool SampleData::loadFromFile (const juce::File& file, double projectSampleRate)
+SampleData::SampleData() = default;
+
+std::unique_ptr<SampleData::DecodedSample> SampleData::decodeFromFile (const juce::File& file,
+                                                                        double projectSampleRate)
 {
-    std::unique_ptr<juce::AudioFormatReader> reader (formatManager.createReaderFor (file));
+    juce::AudioFormatManager fm;
+    fm.registerBasicFormats();
+
+    std::unique_ptr<juce::AudioFormatReader> reader (fm.createReaderFor (file));
     if (reader == nullptr)
-        return false;
+        return nullptr;
 
     auto numFrames = (int) reader->lengthInSamples;
     auto numChannels = (int) reader->numChannels;
     auto sourceSampleRate = reader->sampleRate;
 
-    // Read source audio
     juce::AudioBuffer<float> sourceBuffer (numChannels, numFrames);
     reader->read (&sourceBuffer, 0, numFrames, 0, true, true);
 
-    // Resample if needed
     if (std::abs (sourceSampleRate - projectSampleRate) > 0.01)
     {
         double ratio = sourceSampleRate / projectSampleRate;
@@ -39,8 +91,6 @@ bool SampleData::loadFromFile (const juce::File& file, double projectSampleRate)
         numFrames = resampledLen;
     }
 
-    // Build new stereo buffer locally, then swap to minimise the window
-    // where the UI thread might read a partially-constructed buffer
     juce::AudioBuffer<float> newBuffer (2, numFrames);
 
     if (numChannels >= 2)
@@ -50,18 +100,36 @@ bool SampleData::loadFromFile (const juce::File& file, double projectSampleRate)
     }
     else
     {
-        // Mono -> stereo duplication
         newBuffer.copyFrom (0, 0, sourceBuffer, 0, 0, numFrames);
         newBuffer.copyFrom (1, 0, sourceBuffer, 0, 0, numFrames);
     }
 
-    // Atomic-ish swap: the old buffer is freed after swap, not during setSize
-    std::swap (buffer, newBuffer);
+    auto decoded = std::make_unique<DecodedSample>();
+    decoded->buffer = std::move (newBuffer);
+    decoded->fileName = file.getFileName();
+    decoded->filePath = file.getFullPathName();
+    buildMipmapsForBuffer (decoded->buffer, decoded->peakMipmaps);
+    return decoded;
+}
 
-    loadedFileName = file.getFileName();
-    loadedFilePath = file.getFullPathName();
+void SampleData::applyDecodedSample (std::unique_ptr<DecodedSample> decoded)
+{
+    if (decoded == nullptr)
+        return;
+
+    buffer = std::move (decoded->buffer);
+    peakMipmaps = std::move (decoded->peakMipmaps);
+    loadedFileName = decoded->fileName;
+    loadedFilePath = decoded->filePath;
     loaded = true;
-    buildMipmaps();
+}
+
+bool SampleData::loadFromFile (const juce::File& file, double projectSampleRate)
+{
+    auto decoded = decodeFromFile (file, projectSampleRate);
+    if (decoded == nullptr)
+        return false;
+    applyDecodedSample (std::move (decoded));
     return true;
 }
 
@@ -84,51 +152,5 @@ float SampleData::getInterpolatedSample (double pos, int channel) const
 
 void SampleData::buildMipmaps()
 {
-    int numFrames = buffer.getNumSamples();
-    if (numFrames <= 0)
-    {
-        for (auto& m : peakMipmaps)
-        {
-            m.samplesPerPeak = 0;
-            m.maxPeaks.clear();
-            m.minPeaks.clear();
-        }
-        return;
-    }
-
-    if (buffer.getNumChannels() < 1)
-        return;
-
-    const float* dataL = buffer.getReadPointer (0);
-    const float* dataR = buffer.getNumChannels() > 1 ? buffer.getReadPointer (1) : dataL;
-
-    if (dataL == nullptr)
-        return;
-
-    static constexpr int kBlockSizes[kNumMipmapLevels] = { 64, 512, 4096 };
-
-    for (int level = 0; level < kNumMipmapLevels; ++level)
-    {
-        auto& m = peakMipmaps[(size_t) level];
-        m.samplesPerPeak = kBlockSizes[level];
-        int numPeaks = (numFrames + m.samplesPerPeak - 1) / m.samplesPerPeak;
-        m.maxPeaks.resize ((size_t) numPeaks);
-        m.minPeaks.resize ((size_t) numPeaks);
-
-        for (int i = 0; i < numPeaks; ++i)
-        {
-            int start = i * m.samplesPerPeak;
-            int end = std::min (start + m.samplesPerPeak, numFrames);
-            float hi = -1.0f;
-            float lo = 1.0f;
-            for (int s = start; s < end; ++s)
-            {
-                float val = (dataL[s] + dataR[s]) * 0.5f;
-                if (val > hi) hi = val;
-                if (val < lo) lo = val;
-            }
-            m.maxPeaks[(size_t) i] = hi;
-            m.minPeaks[(size_t) i] = lo;
-        }
-    }
+    buildMipmapsForBuffer (buffer, peakMipmaps);
 }

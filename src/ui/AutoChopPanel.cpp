@@ -61,7 +61,10 @@ AutoChopPanel::AutoChopPanel (IntersectProcessor& p, WaveformView& wv)
         {
             IntersectProcessor::Command cmd;
             cmd.type = IntersectProcessor::CmdTransientChop;
-            cmd.positions = waveformView.transientPreviewPositions;
+            cmd.numPositions = 0;
+            for (int pos : waveformView.transientPreviewPositions)
+                if (cmd.numPositions < (int) cmd.positions.size())
+                    cmd.positions[(size_t) cmd.numPositions++] = pos;
             processor.pushCommand (cmd);
         }
         waveformView.transientPreviewPositions.clear();
@@ -162,7 +165,7 @@ void AutoChopPanel::updatePreview()
     float sens = (float) sensitivitySlider.getValue() / 100.0f;
 
     auto positions = AudioAnalysis::detectTransients (
-        processor.sampleData.getBuffer(), s.startSample, s.endSample, sens);
+        processor.sampleData.getBuffer(), s.startSample, s.endSample, sens, processor.getSampleRate());
 
     if (processor.snapToZeroCrossing.load())
     {

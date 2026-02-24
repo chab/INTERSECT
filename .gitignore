@@ -21,6 +21,10 @@ desktop.ini
 # Claude Code
 .claude/
 CLAUDE.md
+AGENTS.md
+plan.md
+review.md
+
 
 # Compiled objects
 *.o

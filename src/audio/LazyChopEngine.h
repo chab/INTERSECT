@@ -30,7 +30,7 @@ public:
     void stop (VoicePool& voicePool, SliceManager& sliceMgr);
     int  onNote (int note, VoicePool& voicePool, SliceManager& sliceMgr);
 
-    static int getPreviewVoiceIndex() { return VoicePool::kMaxVoices - 1; }
+    static int getPreviewVoiceIndex() { return VoicePool::kPreviewVoiceIndex; }
 
 private:
     void startPreview (VoicePool& voicePool, int fromPos);

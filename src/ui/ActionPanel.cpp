@@ -45,13 +45,14 @@ ActionPanel::ActionPanel (IntersectProcessor& p, WaveformView& wv)
     dupBtn.onClick = [this] {
         IntersectProcessor::Command cmd;
         cmd.type = IntersectProcessor::CmdDuplicateSlice;
+        cmd.intParam1 = -1;   // -1 = keep source position (existing behavior)
         processor.pushCommand (cmd);
         repaint();
     };
 
     splitBtn.onClick = [this] { toggleAutoChop(); };
 
-    addSliceBtn.setTooltip ("Add Slice (A)");
+    addSliceBtn.setTooltip ("Add Slice (A / hold Alt)");
     lazyChopBtn.setTooltip ("Lazy Chop (L)");
     dupBtn.setTooltip ("Duplicate Slice (D)");
     splitBtn.setTooltip ("Auto Chop (C)");

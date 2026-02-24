@@ -53,12 +53,9 @@ void SliceManager::deleteSlice (int idx)
     if (idx < 0 || idx >= numSlices)
         return;
 
-    // Shift all slices after idx down by one
+    // Shift all slices after idx down by one, preserving each slice's MIDI note
     for (int i = idx; i < numSlices - 1; ++i)
-    {
         slices[i] = slices[i + 1];
-        slices[i].midiNote = std::min (rootNote.load() + i, 127);
-    }
 
     // Deactivate last
     slices[numSlices - 1].active = false;

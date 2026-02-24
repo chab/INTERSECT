@@ -52,7 +52,7 @@ void SliceControlBar::drawParamCell (juce::Graphics& g, int x, int y,
     int valueW = (int) IntersectLookAndFeel::makeFont (14.0f).getStringWidthFloat (value);
     outWidth = std::max (std::max (labelW, valueW) + 20, 55);
 
-    cells.push_back ({ x, y, outWidth, cellH, lockBit, fieldId, minVal, maxVal, step, isBoolean, isChoice, false });
+    cells.push_back ({ x, y, outWidth, cellH, lockBit, fieldId, minVal, maxVal, step, isBoolean, isChoice, false, false });
 }
 
 void SliceControlBar::paint (juce::Graphics& g)
@@ -165,25 +165,61 @@ void SliceControlBar::paint (juce::Graphics& g)
         g.setColour (getTheme().accent);
         g.drawText ("SET", x + 2, row1y + 2, 34, 13, juce::Justification::centredLeft);
         g.drawText ("BPM", x + 2, row1y + 15, 34, 13, juce::Justification::centredLeft);
-        cells.push_back ({ x, row1y, 38, 32, 0, 0, 0.0f, 0.0f, 0.0f, false, false, true });
+        cells.push_back ({ x, row1y, 38, 32, 0, 0, 0.0f, 0.0f, 0.0f, false, false, false, true });
         x += 42;
     }
+
+    bool algoLocked = (s.lockMask & kLockAlgorithm) != 0;
+    int algoVal = algoLocked ? s.algorithm : gAlgo;
+    bool stretchLocked = (s.lockMask & kLockStretch) != 0;
+    bool stretchVal = stretchLocked ? s.stretchEnabled : gStretch;
+    bool repitchStretch = (algoVal == 0) && stretchVal;
 
     // PITCH
     locked = s.lockMask & kLockPitch;
     float pv = locked ? s.pitchSemitones : gPitch;
-    val = (pv >= 0 ? "+" : "") + juce::String (pv, 1);
+    if (repitchStretch)
+    {
+        float dawBpm = processor.dawBpm.load();
+        float totalSemis = (dawBpm > 0.0f && bpmVal > 0.0f)
+            ? 12.0f * std::log2 (dawBpm / bpmVal) : 0.0f;
+        pv = (float) std::round (totalSemis);
+    }
+    { int pvi = (int) std::round (pv); val = (pvi >= 0 ? "+" : "") + juce::String (pvi) + "st"; }
     drawParamCell (g, x, row1y, "PITCH", val, locked, kLockPitch, F::FieldPitch, -24.0f, 24.0f, 0.1f, false, false, cw);
+    if (repitchStretch)
+        cells.back().isReadOnly = true;
     x += cw + 4;
+
+    // TUNE
+    {
+        float gCents = processor.apvts.getRawParameterValue (ParamIds::defaultCentsDetune)->load();
+        locked = s.lockMask & kLockCentsDetune;
+        float centsVal = locked ? s.centsDetune : gCents;
+        if (repitchStretch)
+        {
+            float dawBpm = processor.dawBpm.load();
+            float totalSemis = (dawBpm > 0.0f && bpmVal > 0.0f)
+                ? 12.0f * std::log2 (dawBpm / bpmVal) : 0.0f;
+            int semisI = (int) std::round (totalSemis);
+            centsVal = (totalSemis - (float) semisI) * 100.0f;
+        }
+        int centsI = (int) std::round (centsVal);
+        centsI = juce::jlimit (-100, 100, centsI);
+        juce::String centsStr = (centsI >= 0 ? "+" : "") + juce::String (centsI) + "ct";
+        drawParamCell (g, x, row1y, "TUNE", centsStr, locked, kLockCentsDetune, F::FieldCentsDetune, -100.0f, 100.0f, 0.1f, false, false, cw);
+        if (repitchStretch)
+            cells.back().isReadOnly = true;
+        x += cw + 4;
+    }
 
     // ALGORITHM
-    locked = s.lockMask & kLockAlgorithm;
-    int av = locked ? s.algorithm : gAlgo;
+    locked = algoLocked;
     juce::String algoNames[] = { "Repitch", "Stretch", "Bungee" };
-    drawParamCell (g, x, row1y, "ALGO", algoNames[juce::jlimit (0, 2, av)], locked, kLockAlgorithm, F::FieldAlgorithm, 0.0f, 2.0f, 1.0f, false, true, cw);
+    drawParamCell (g, x, row1y, "ALGO", algoNames[juce::jlimit (0, 2, algoVal)], locked, kLockAlgorithm, F::FieldAlgorithm, 0.0f, 2.0f, 1.0f, false, true, cw);
     x += cw + 4;
 
-    if (av == 1)
+    if (algoVal == 1)
     {
         // TONALITY — only for Stretch (Signalsmith)
         float gTonal = processor.apvts.getRawParameterValue (ParamIds::defaultTonality)->load();
@@ -206,7 +242,7 @@ void SliceControlBar::paint (juce::Graphics& g)
         drawParamCell (g, x, row1y, "FMNT C", fmntCVal ? "ON" : "OFF", locked, kLockFormantComp, F::FieldFormantComp, 0.0f, 1.0f, 1.0f, true, false, cw);
         x += cw + 4;
     }
-    else if (av == 2)
+    else if (algoVal == 2)
     {
         // GRAIN — only for Bungee
         int gGM = (int) processor.apvts.getRawParameterValue (ParamIds::defaultGrainMode)->load();
@@ -235,7 +271,6 @@ void SliceControlBar::paint (juce::Graphics& g)
         drawParamCell (g, x, row1y, "1SHOT", oneShotVal ? "ON" : "OFF",
                        locked, kLockOneShot, F::FieldOneShot,
                        0.0f, 1.0f, 1.0f, true, false, cw);
-        x += cw + 4;
     }
 
     // ====== Separator line ======
@@ -319,7 +354,7 @@ void SliceControlBar::paint (juce::Graphics& g)
     g.setFont (IntersectLookAndFeel::makeFont (14.0f));
     g.setColour (getTheme().foreground.withAlpha (0.8f));
     g.drawText (juce::String (s.midiNote), x + 2, row2y + 15, 45, 14, juce::Justification::centredLeft);
-    cells.push_back ({ x, row2y, 45, 32, 0, F::FieldMidiNote, 0.0f, 127.0f, 1.0f, false, false, false });
+    cells.push_back ({ x, row2y, 45, 32, 0, F::FieldMidiNote, 0.0f, 127.0f, 1.0f, false, false, false, false });
     x += 49;
 }
 
@@ -373,6 +408,9 @@ void SliceControlBar::mouseDown (const juce::MouseEvent& e)
         if (pos.x >= cell.x + 12 && pos.x < cell.x + cell.w &&
             pos.y >= cell.y && pos.y < cell.y + cell.h)
         {
+            if (cell.isReadOnly)
+                return;
+
             // Boolean toggle (ping-pong, stretch)
             if (cell.isBoolean)
             {
@@ -522,6 +560,10 @@ void SliceControlBar::mouseDown (const juce::MouseEvent& e)
                     case IntersectProcessor::FieldOutputBus:
                         dragStartValue = (float) ((s.lockMask & kLockOutputBus) ? s.outputBus : 0);
                         break;
+                    case IntersectProcessor::FieldCentsDetune:
+                        dragStartValue = (s.lockMask & kLockCentsDetune) ? s.centsDetune :
+                            processor.apvts.getRawParameterValue (ParamIds::defaultCentsDetune)->load();
+                        break;
                     default:
                         dragStartValue = 0.0f;
                         break;
@@ -549,13 +591,61 @@ void SliceControlBar::mouseDrag (const juce::MouseEvent& e)
 
     const auto& cell = cells[(size_t) activeDragCell];
     float deltaY = (float) (dragStartY - e.y);
-    float range = cell.maxVal - cell.minVal;
-    float sensitivity = range / 200.0f;
-    float newVal = dragStartValue + deltaY * sensitivity;
-    newVal = juce::jlimit (cell.minVal, cell.maxVal, newVal);
+    float newVal;
+    bool isAdsr = (cell.fieldId == IntersectProcessor::FieldAttack
+                || cell.fieldId == IntersectProcessor::FieldDecay
+                || cell.fieldId == IntersectProcessor::FieldSustain
+                || cell.fieldId == IntersectProcessor::FieldRelease);
+    bool isBpm = (cell.fieldId == IntersectProcessor::FieldBpm);
 
-    if (cell.step >= 1.0f)
-        newVal = std::round (newVal / cell.step) * cell.step;
+    if (isAdsr || isBpm)
+    {
+        float displayStart = dragStartValue;
+        float displayMin = cell.minVal;
+        float displayMax = cell.maxVal;
+        if (cell.fieldId == IntersectProcessor::FieldAttack
+            || cell.fieldId == IntersectProcessor::FieldDecay
+            || cell.fieldId == IntersectProcessor::FieldRelease)
+        {
+            displayStart *= 1000.0f;
+            displayMin *= 1000.0f;
+            displayMax *= 1000.0f;
+        }
+        else if (cell.fieldId == IntersectProcessor::FieldSustain)
+        {
+            displayStart *= 100.0f;
+            displayMin *= 100.0f;
+            displayMax *= 100.0f;
+        }
+
+        float displayVal = displayStart + deltaY * 0.25f;
+        float snap = e.mods.isShiftDown() ? 5.0f : 1.0f;
+        displayVal = std::round (displayVal / snap) * snap;
+        displayVal = juce::jlimit (displayMin, displayMax, displayVal);
+
+        if (cell.fieldId == IntersectProcessor::FieldAttack
+            || cell.fieldId == IntersectProcessor::FieldDecay
+            || cell.fieldId == IntersectProcessor::FieldRelease)
+            newVal = displayVal / 1000.0f;
+        else if (cell.fieldId == IntersectProcessor::FieldSustain)
+            newVal = displayVal / 100.0f;
+        else
+            newVal = displayVal;
+    }
+    else
+    {
+        float range = cell.maxVal - cell.minVal;
+        float sensitivity = range / 200.0f;
+        newVal = dragStartValue + deltaY * sensitivity;
+
+        // Drag snapping: normal = whole units, Shift = coarse 5-unit steps
+        if (! cell.isBoolean && ! cell.isChoice && ! cell.isSetBpm)
+        {
+            float snap = e.mods.isShiftDown() ? 5.0f : 1.0f;
+            newVal = std::round (newVal / snap) * snap;
+        }
+        newVal = juce::jlimit (cell.minVal, cell.maxVal, newVal);
+    }
 
     IntersectProcessor::Command cmd;
     cmd.type = IntersectProcessor::CmdSetSliceParam;
@@ -603,7 +693,7 @@ void SliceControlBar::mouseDoubleClick (const juce::MouseEvent& e)
         if (pos.x >= cell.x + 12 && pos.x < cell.x + cell.w &&
             pos.y >= cell.y && pos.y < cell.y + cell.h)
         {
-            if (cell.isBoolean || cell.isChoice)
+            if (cell.isBoolean || cell.isChoice || cell.isReadOnly)
                 return;
 
             // Get current value
@@ -659,6 +749,10 @@ void SliceControlBar::mouseDoubleClick (const juce::MouseEvent& e)
                         break;
                     case IntersectProcessor::FieldOutputBus:
                         currentVal = (float) ((s.lockMask & kLockOutputBus) ? s.outputBus : 0);
+                        break;
+                    case IntersectProcessor::FieldCentsDetune:
+                        currentVal = (s.lockMask & kLockCentsDetune) ? s.centsDetune :
+                            processor.apvts.getRawParameterValue (ParamIds::defaultCentsDetune)->load();
                         break;
                     default: break;
                 }

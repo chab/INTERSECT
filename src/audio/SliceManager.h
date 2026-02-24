@@ -1,6 +1,7 @@
 #pragma once
 #include "Slice.h"
 #include <array>
+#include <atomic>
 
 class SliceManager
 {
@@ -23,7 +24,7 @@ public:
     int getNumSlices() const { return numSlices; }
     void setNumSlices (int n) { numSlices = juce::jlimit (0, kMaxSlices, n); }
 
-    int  selectedSlice = -1;
+    std::atomic<int> selectedSlice { -1 };
     std::atomic<int> rootNote { 36 };
 
     void setSlicePalette (const juce::Colour* p) { palette = p; }

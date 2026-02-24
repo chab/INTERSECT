@@ -9,20 +9,29 @@ HeaderBar::HeaderBar (IntersectProcessor& p) : processor (p)
 {
     addAndMakeVisible (undoBtn);
     addAndMakeVisible (redoBtn);
+    addAndMakeVisible (panicBtn);
     addAndMakeVisible (loadBtn);
     addAndMakeVisible (themeBtn);
     undoBtn.setAlwaysOnTop (true);
     redoBtn.setAlwaysOnTop (true);
+    panicBtn.setAlwaysOnTop (true);
     loadBtn.setAlwaysOnTop (true);
     themeBtn.setAlwaysOnTop (true);
 
     // Style buttons to match M button
-    for (auto* btn : { &undoBtn, &redoBtn, &loadBtn, &themeBtn })
+    for (auto* btn : { &undoBtn, &redoBtn, &panicBtn, &loadBtn, &themeBtn })
     {
         btn->setColour (juce::TextButton::buttonColourId, getTheme().button);
         btn->setColour (juce::TextButton::textColourOnId, getTheme().foreground);
         btn->setColour (juce::TextButton::textColourOffId, getTheme().foreground);
     }
+
+    panicBtn.setTooltip ("Panic: kill all sound");
+    panicBtn.onClick = [this] {
+        IntersectProcessor::Command cmd;
+        cmd.type = IntersectProcessor::CmdPanic;
+        processor.pushCommand (cmd);
+    };
 
     undoBtn.setTooltip ("Undo (Ctrl+Z)");
     redoBtn.setTooltip ("Redo (Ctrl+Shift+Z)");
@@ -48,15 +57,17 @@ HeaderBar::HeaderBar (IntersectProcessor& p) : processor (p)
 void HeaderBar::resized()
 {
     int right = getWidth() - 8;  // 8px right margin matching content
+    int panicW = 56;
 
-    themeBtn.setBounds     (right - 26, 2, 26, 28);
-    loadBtn.setBounds      (right - 26 - 4 - 40, 2, 40, 28);
+    themeBtn.setBounds  (right - 26, 2, 26, 28);
+    loadBtn.setBounds   (right - 26 - 4 - 40, 2, 40, 28);
+    panicBtn.setBounds  (right - 26 - 4 - 40 - 4 - panicW, 2, panicW, 28);
 
     // UNDO/REDO stacked vertically
     int undoW = 48;
-    int undoX = right - 26 - 4 - 40 - 4 - undoW;
-    undoBtn.setBounds      (undoX, 2, undoW, 13);
-    redoBtn.setBounds      (undoX, 17, undoW, 13);
+    int undoX = right - 26 - 4 - 40 - 4 - panicW - 4 - undoW;
+    undoBtn.setBounds   (undoX, 2, undoW, 13);
+    redoBtn.setBounds   (undoX, 17, undoW, 13);
 }
 
 void HeaderBar::adjustScale (float delta)
@@ -72,7 +83,7 @@ void HeaderBar::adjustScale (float delta)
 void HeaderBar::paint (juce::Graphics& g)
 {
     // Re-theme buttons so theme changes take effect
-    for (auto* btn : { &undoBtn, &redoBtn, &loadBtn, &themeBtn })
+    for (auto* btn : { &undoBtn, &redoBtn, &panicBtn, &loadBtn, &themeBtn })
     {
         btn->setColour (juce::TextButton::buttonColourId, getTheme().button);
         btn->setColour (juce::TextButton::textColourOnId, getTheme().foreground);
@@ -137,7 +148,8 @@ void HeaderBar::paint (juce::Graphics& g)
                 float dawBpm = processor.dawBpm.load();
                 float calcPitch = (dawBpm > 0.0f && bpm > 0.0f)
                     ? 12.0f * std::log2 (dawBpm / bpm) : 0.0f;
-                juce::String pitchStr = (calcPitch >= 0 ? "+" : "") + juce::String (calcPitch, 1) + "st";
+                int calcPitchI = (int) std::round (calcPitch);
+                juce::String pitchStr = (calcPitchI >= 0 ? "+" : "") + juce::String (calcPitchI) + "st";
                 g.setColour (getTheme().foreground.withAlpha (0.5f));
                 g.drawText (pitchStr, x, row1y + 15, cellW, 14, juce::Justification::centredLeft);
                 headerCells.push_back ({ x, row1y, cellW, row1h, ParamIds::defaultPitch, -24.0f, 24.0f, 0.1f, false, false, true, false });
@@ -146,8 +158,44 @@ void HeaderBar::paint (juce::Graphics& g)
             {
                 float pitch = processor.apvts.getRawParameterValue (ParamIds::defaultPitch)->load();
                 g.setColour (getTheme().foreground.withAlpha (0.9f));
-                g.drawText (juce::String (pitch, 1), x, row1y + 15, cellW, 14, juce::Justification::centredLeft);
+                int pitchI = (int) std::round (pitch);
+                g.drawText ((pitchI >= 0 ? "+" : "") + juce::String (pitchI), x, row1y + 15, cellW, 14, juce::Justification::centredLeft);
                 headerCells.push_back ({ x, row1y, cellW, row1h, ParamIds::defaultPitch, -24.0f, 24.0f, 0.1f, false, false, false, false });
+            }
+            x += cellW + cellGap;
+        }
+
+        // TUNE
+        {
+            bool stretchOn = processor.apvts.getRawParameterValue (ParamIds::defaultStretchEnabled)->load() > 0.5f;
+            int algo = (int) processor.apvts.getRawParameterValue (ParamIds::defaultAlgorithm)->load();
+            bool tuneReadOnly = (algo == 0 && stretchOn);
+
+            g.setFont (IntersectLookAndFeel::makeFont (12.0f));
+            g.setColour (tuneReadOnly ? getTheme().foreground.withAlpha (0.5f) : getTheme().foreground.withAlpha (0.9f));
+            g.drawText ("TUNE", x, row1y + 2, cellW, 13, juce::Justification::centredLeft);
+            g.setFont (IntersectLookAndFeel::makeFont (14.0f));
+            if (tuneReadOnly)
+            {
+                float dawBpm = processor.dawBpm.load();
+                float totalSemis = (dawBpm > 0.0f && bpm > 0.0f)
+                    ? 12.0f * std::log2 (dawBpm / bpm) : 0.0f;
+                int semisI = (int) std::round (totalSemis);
+                int centsI = (int) std::round ((totalSemis - (float) semisI) * 100.0f);
+                centsI = juce::jlimit (-100, 100, centsI);
+                g.setColour (getTheme().foreground.withAlpha (0.5f));
+                g.drawText ((centsI >= 0 ? "+" : "") + juce::String (centsI) + "ct",
+                            x, row1y + 15, cellW, 14, juce::Justification::centredLeft);
+                headerCells.push_back ({ x, row1y, cellW, row1h, ParamIds::defaultCentsDetune, -100.0f, 100.0f, 0.1f, false, false, true, false });
+            }
+            else
+            {
+                float cents = processor.apvts.getRawParameterValue (ParamIds::defaultCentsDetune)->load();
+                int centsI = (int) std::round (cents);
+                g.setColour (getTheme().foreground.withAlpha (0.9f));
+                g.drawText ((centsI >= 0 ? "+" : "") + juce::String (centsI) + "ct",
+                            x, row1y + 15, cellW, 14, juce::Justification::centredLeft);
+                headerCells.push_back ({ x, row1y, cellW, row1h, ParamIds::defaultCentsDetune, -100.0f, 100.0f, 0.1f, false, false, false, false });
             }
             x += cellW + cellGap;
         }
@@ -388,7 +436,7 @@ void HeaderBar::paint (juce::Graphics& g)
             int maxV = (int) processor.apvts.getRawParameterValue (ParamIds::maxVoices)->load();
             g.setColour (getTheme().foreground.withAlpha (0.9f));
             g.drawText (juce::String (maxV), voicesX, row2y + 15, voicesW, 14, juce::Justification::right);
-            headerCells.push_back ({ voicesX, row2y, voicesW, row2h, ParamIds::maxVoices, 1.0f, 32.0f, 1.0f, false, false, false, false });
+            headerCells.push_back ({ voicesX, row2y, voicesW, row2h, ParamIds::maxVoices, 1.0f, 31.0f, 1.0f, false, false, false, false });
         }
     }
     else if (processor.sampleMissing.load())
@@ -510,13 +558,30 @@ void HeaderBar::mouseDrag (const juce::MouseEvent& e)
         return;
 
     float deltaY = (float) (dragStartY - e.y);  // up = increase
-    float range = cell.maxVal - cell.minVal;
-    float sensitivity = range / 200.0f;
-    float newVal = dragStartValue + deltaY * sensitivity;
+    float newVal;
+    bool isAdsrCell = (cell.paramId == ParamIds::defaultAttack
+                    || cell.paramId == ParamIds::defaultDecay
+                    || cell.paramId == ParamIds::defaultSustain
+                    || cell.paramId == ParamIds::defaultRelease);
+    bool isUnitDragCell = isAdsrCell || cell.paramId == ParamIds::defaultBpm;
+    if (isUnitDragCell)
+    {
+        float displayStart = dragStartValue;
+        float snap = e.mods.isShiftDown() ? 5.0f : 1.0f;
+        float displayVal = displayStart + deltaY * 0.25f;
+        displayVal = std::round (displayVal / snap) * snap;
+        newVal = displayVal;
+    }
+    else
+    {
+        float range = cell.maxVal - cell.minVal;
+        float sensitivity = range / 200.0f;
+        newVal = dragStartValue + deltaY * sensitivity;
+        float snap = e.mods.isShiftDown() ? 5.0f : (cell.step >= 1.0f ? 1.0f : 0.0f);
+        if (snap > 0.0f)
+            newVal = std::round (newVal / snap) * snap;
+    }
     newVal = juce::jlimit (cell.minVal, cell.maxVal, newVal);
-
-    if (cell.step >= 1.0f)
-        newVal = std::round (newVal);
 
     if (auto* p = processor.apvts.getParameter (cell.paramId))
         p->setValueNotifyingHost (p->convertTo0to1 (newVal));

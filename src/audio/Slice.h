@@ -23,7 +23,8 @@ enum LockBit : uint32_t
     kLockReverse       = 65536,
     kLockOutputBus     = 131072,
     kLockLoop          = 262144,
-    kLockOneShot       = 524288    // bit 19
+    kLockOneShot       = 524288,   // bit 19
+    kLockCentsDetune   = 1048576   // bit 20
 };
 
 struct Slice
@@ -51,6 +52,7 @@ struct Slice
     bool     reverse       = false;
     int      outputBus     = 0;
     bool     oneShot       = false;
+    float    centsDetune   = 0.0f;      // fine pitch: -100..+100 cents
     uint32_t lockMask      = 0;
     juce::Colour colour    { 0.4f, 0.7f, 0.95f, 1.0f };
 };

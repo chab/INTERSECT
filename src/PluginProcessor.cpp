@@ -2,6 +2,53 @@
 #include "PluginEditor.h"
 #include "audio/GrainEngine.h"
 #include "audio/AudioAnalysis.h"
+#include <functional>
+#include <memory>
+
+namespace
+{
+class SampleDecodeJob final : public juce::ThreadPoolJob
+{
+public:
+    using SuccessFn = std::function<void (int, IntersectProcessor::LoadKind,
+                                          std::unique_ptr<SampleData::DecodedSample>)>;
+    using FailureFn = std::function<void (int, IntersectProcessor::LoadKind, const juce::File&)>;
+
+    SampleDecodeJob (juce::File sourceFile, double targetRate, int loadToken,
+                     IntersectProcessor::LoadKind kind,
+                     SuccessFn onSuccessIn, FailureFn onFailureIn)
+        : juce::ThreadPoolJob ("SampleDecodeJob"),
+          file (std::move (sourceFile)),
+          sampleRate (targetRate),
+          token (loadToken),
+          loadKind (kind),
+          onSuccess (std::move (onSuccessIn)),
+          onFailure (std::move (onFailureIn))
+    {
+    }
+
+    JobStatus runJob() override
+    {
+        auto decoded = SampleData::decodeFromFile (file, sampleRate);
+        if (shouldExit())
+            return jobHasFinished;
+
+        if (decoded != nullptr)
+            onSuccess (token, loadKind, std::move (decoded));
+        else
+            onFailure (token, loadKind, file);
+        return jobHasFinished;
+    }
+
+private:
+    juce::File file;
+    double sampleRate = 44100.0;
+    int token = 0;
+    IntersectProcessor::LoadKind loadKind = IntersectProcessor::LoadKindReplace;
+    SuccessFn onSuccess;
+    FailureFn onFailure;
+};
+} // namespace
 
 IntersectProcessor::IntersectProcessor()
     : AudioProcessor (BusesProperties()
@@ -42,6 +89,14 @@ IntersectProcessor::IntersectProcessor()
     loopParam        = apvts.getRawParameterValue (ParamIds::defaultLoop);
     oneShotParam     = apvts.getRawParameterValue (ParamIds::defaultOneShot);
     maxVoicesParam   = apvts.getRawParameterValue (ParamIds::maxVoices);
+    centsDetuneParam = apvts.getRawParameterValue (ParamIds::defaultCentsDetune);
+}
+
+IntersectProcessor::~IntersectProcessor()
+{
+    fileLoadPool.removeAllJobs (true, 5000);
+    auto* pending = completedLoadData.exchange (nullptr, std::memory_order_acq_rel);
+    delete pending;
 }
 
 bool IntersectProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
@@ -66,9 +121,82 @@ void IntersectProcessor::prepareToPlay (double sampleRate, int /*samplesPerBlock
 {
     currentSampleRate = sampleRate;
     voicePool.setSampleRate (sampleRate);
+    std::fill (std::begin (heldNotes), std::end (heldNotes), false);
 }
 
 void IntersectProcessor::releaseResources() {}
+
+void IntersectProcessor::requestSampleLoad (const juce::File& file, LoadKind kind)
+{
+    const int token = nextLoadToken.fetch_add (1, std::memory_order_relaxed) + 1;
+    latestLoadToken.store (token, std::memory_order_release);
+    latestLoadKind.store ((int) kind, std::memory_order_release);
+
+    // Keep only the latest completed decode payload.
+    auto* oldDecoded = completedLoadData.exchange (nullptr, std::memory_order_acq_rel);
+    delete oldDecoded;
+
+    if (! file.existsAsFile())
+    {
+        if (kind == LoadKindRelink)
+        {
+            sampleMissing.store (true);
+            missingFilePath = file.getFullPathName();
+            sampleData.setFileName (file.getFileName());
+            sampleData.setFilePath (file.getFullPathName());
+        }
+        return;
+    }
+
+    const double sr = currentSampleRate > 0.0 ? currentSampleRate : 44100.0;
+
+    auto onSuccess = [this] (int finishedToken, LoadKind finishedKind,
+                             std::unique_ptr<SampleData::DecodedSample> decoded)
+    {
+        if (finishedToken != latestLoadToken.load (std::memory_order_acquire))
+            return;
+
+        auto* old = completedLoadData.exchange (decoded.release(), std::memory_order_acq_rel);
+        delete old;
+        latestLoadKind.store ((int) finishedKind, std::memory_order_release);
+    };
+
+    auto onFailure = [this] (int finishedToken, LoadKind finishedKind, const juce::File& failedFile)
+    {
+        if (finishedToken != latestLoadToken.load (std::memory_order_acquire))
+            return;
+
+        Command failed;
+        failed.type = CmdFileLoadFailed;
+        failed.intParam1 = finishedToken;
+        failed.intParam2 = (int) finishedKind;
+        failed.fileParam = failedFile;
+        pushCommand (std::move (failed));
+    };
+
+    fileLoadPool.addJob (new SampleDecodeJob (file, sr, token, kind, onSuccess, onFailure), true);
+}
+
+void IntersectProcessor::clearVoicesBeforeSampleSwap()
+{
+    // Stop lazy chop before killing voices; its preview voice and buffer pointer
+    // must be torn down before the sample data is replaced.
+    lazyChop.stop (voicePool, sliceManager);
+
+    // Kill all active voices before replacing the sample buffer
+    // to prevent dangling reads from stretcher pipelines.
+    for (int vi = 0; vi < VoicePool::kMaxVoices; ++vi)
+    {
+        auto& v = voicePool.getVoice (vi);
+        v.active = false;
+        v.stretcher.reset();
+        v.bungeeStretcher.reset();
+        voicePool.voicePositions[vi].store (0.0f,
+            vi == VoicePool::kPreviewVoiceIndex
+                ? std::memory_order_release
+                : std::memory_order_relaxed);
+    }
+}
 
 void IntersectProcessor::pushCommand (Command cmd)
 {
@@ -77,6 +205,11 @@ void IntersectProcessor::pushCommand (Command cmd)
         commandBuffer[(size_t) scope.startIndex1] = std::move (cmd);
     else if (scope.blockSize2 > 0)
         commandBuffer[(size_t) scope.startIndex2] = std::move (cmd);
+    else
+    {
+        droppedCommandCount.fetch_add (1, std::memory_order_relaxed);
+        droppedCommandTotal.fetch_add (1, std::memory_order_relaxed);
+    }
 }
 
 void IntersectProcessor::drainCommands()
@@ -88,7 +221,8 @@ void IntersectProcessor::drainCommands()
     for (int i = 0; i < scope.blockSize2; ++i)
         handleCommand (commandBuffer[(size_t) (scope.startIndex2 + i)]);
 
-    if (scope.blockSize1 + scope.blockSize2 > 0)
+    const auto dropped = droppedCommandCount.exchange (0, std::memory_order_relaxed);
+    if (scope.blockSize1 + scope.blockSize2 > 0 || dropped > 0)
         updateHostDisplay (ChangeDetails().withNonParameterStateChanged (true));
 }
 
@@ -126,47 +260,47 @@ void IntersectProcessor::restoreSnapshot (const UndoManager::Snapshot& snap)
 
 void IntersectProcessor::handleCommand (const Command& cmd)
 {
-    // Capture snapshot before modifying commands (not for load/relink/lazychop/undo/redo/none)
     switch (cmd.type)
     {
-        case CmdNone:
-        case CmdLoadFile:
-        case CmdRelinkFile:
-        case CmdLazyChopStart:
-        case CmdLazyChopStop:
-        case CmdUndo:
-        case CmdRedo:
-        case CmdSetSliceParam:
+        case CmdBeginGesture:
+            if (! gestureSnapshotCaptured)
+                captureSnapshot();
+            gestureSnapshotCaptured = true;
+            blocksSinceGestureActivity = 0;
             break;
+
+        case CmdSetSliceParam:
+            if (! gestureSnapshotCaptured)
+                captureSnapshot();
+            gestureSnapshotCaptured = true;
+            blocksSinceGestureActivity = 0;
+            break;
+
+        case CmdSetSliceBounds:
+        case CmdCreateSlice:
+        case CmdDeleteSlice:
+        case CmdStretch:
+        case CmdToggleLock:
+        case CmdDuplicateSlice:
+        case CmdSplitSlice:
+        case CmdTransientChop:
+            if (! gestureSnapshotCaptured)
+                captureSnapshot();
+            gestureSnapshotCaptured = false;
+            blocksSinceGestureActivity = 0;
+            break;
+
         default:
-            captureSnapshot();
+            // Leave param gesture mode after idle/non-param commands.
+            if (cmd.type != CmdSetSliceParam)
+                gestureSnapshotCaptured = false;
             break;
     }
 
     switch (cmd.type)
     {
         case CmdLoadFile:
-            // Kill all active voices before replacing the sample buffer
-            // to prevent dangling reads from stretcher pipelines
-            for (int vi = 0; vi < VoicePool::kMaxVoices; ++vi)
-            {
-                auto& v = voicePool.getVoice (vi);
-                v.active = false;
-                v.stretcher.reset();
-                v.bungeeStretcher.reset();
-                // Use release on last store to ensure UI thread sees all
-                // voice deactivations before the sample buffer is swapped
-                voicePool.voicePositions[vi].store (0.0f,
-                    vi == VoicePool::kMaxVoices - 1
-                        ? std::memory_order_release
-                        : std::memory_order_relaxed);
-            }
-            if (sampleData.loadFromFile (cmd.fileParam, currentSampleRate))
-            {
-                sliceManager.clearAll();
-                sampleMissing.store (false);
-                missingFilePath.clear();
-            }
+            requestSampleLoad (cmd.fileParam, LoadKindReplace);
             break;
 
         case CmdCreateSlice:
@@ -223,7 +357,36 @@ void IntersectProcessor::handleCommand (const Command& cmd)
             if (sel >= 0 && sel < sliceManager.getNumSlices())
             {
                 auto& s = sliceManager.getSlice (sel);
-                s.lockMask ^= (uint32_t) cmd.intParam1;
+                uint32_t bit = (uint32_t) cmd.intParam1;
+                bool turningOn = !(s.lockMask & bit);
+
+                if (turningOn)
+                {
+                    // Snapshot the current effective (global) value into the slice field
+                    // so the locked value matches what was displayed before locking.
+                    if      (bit == kLockBpm)         s.bpm               = bpmParam->load();
+                    else if (bit == kLockPitch)        s.pitchSemitones    = pitchParam->load();
+                    else if (bit == kLockAlgorithm)    s.algorithm         = (int) algoParam->load();
+                    else if (bit == kLockAttack)       s.attackSec         = attackParam->load() / 1000.0f;
+                    else if (bit == kLockDecay)        s.decaySec          = decayParam->load() / 1000.0f;
+                    else if (bit == kLockSustain)      s.sustainLevel      = sustainParam->load() / 100.0f;
+                    else if (bit == kLockRelease)      s.releaseSec        = releaseParam->load() / 1000.0f;
+                    else if (bit == kLockMuteGroup)    s.muteGroup         = (int) muteGroupParam->load();
+                    else if (bit == kLockLoop)         s.loopMode          = (int) loopParam->load();
+                    else if (bit == kLockStretch)      s.stretchEnabled    = stretchParam->load()     > 0.5f;
+                    else if (bit == kLockReleaseTail)  s.releaseTail       = releaseTailParam->load() > 0.5f;
+                    else if (bit == kLockReverse)      s.reverse           = reverseParam->load()     > 0.5f;
+                    else if (bit == kLockOneShot)      s.oneShot           = oneShotParam->load()     > 0.5f;
+                    else if (bit == kLockCentsDetune)  s.centsDetune       = centsDetuneParam->load();
+                    else if (bit == kLockTonality)     s.tonalityHz        = tonalityParam->load();
+                    else if (bit == kLockFormant)      s.formantSemitones  = formantParam->load();
+                    else if (bit == kLockFormantComp)  s.formantComp       = formantCompParam->load() > 0.5f;
+                    else if (bit == kLockGrainMode)    s.grainMode         = (int) grainModeParam->load();
+                    else if (bit == kLockVolume)       s.volume            = masterVolParam->load();
+                    // kLockOutputBus: no global default param — slice default (0) is correct
+                }
+
+                s.lockMask ^= bit;
             }
             break;
         }
@@ -258,11 +421,36 @@ void IntersectProcessor::handleCommand (const Command& cmd)
                     case FieldOutputBus:  s.outputBus = juce::jlimit (0, 15, (int) val); s.lockMask |= kLockOutputBus; break;
                     case FieldLoop:       s.loopMode = (int) val;    s.lockMask |= kLockLoop;      break;
                     case FieldOneShot:    s.oneShot = val > 0.5f;    s.lockMask |= kLockOneShot;   break;
+                    case FieldCentsDetune: s.centsDetune = val;         s.lockMask |= kLockCentsDetune; break;
                     case FieldMidiNote:
                         s.midiNote = juce::jlimit (0, 127, (int) val);
                         sliceManager.rebuildMidiMap();
                         break;
                 }
+            }
+            break;
+        }
+
+        case CmdSetSliceBounds:
+        {
+            int idx = cmd.intParam1;
+            if (idx >= 0 && idx < sliceManager.getNumSlices())
+            {
+                const int maxLen = sampleData.getNumFrames();
+                if (maxLen <= 1)
+                    break;
+
+                auto& s = sliceManager.getSlice (idx);
+                int requestedEnd = (cmd.numPositions > 0) ? cmd.positions[0] : (int) cmd.floatParam1;
+                int start = juce::jmin (cmd.intParam2, requestedEnd);
+                int end = juce::jmax (cmd.intParam2, requestedEnd);
+                start = juce::jlimit (0, juce::jmax (0, maxLen - 1), start);
+                end = juce::jlimit (start + 1, juce::jmax (start + 1, maxLen), end);
+                if (end - start < 64)
+                    end = juce::jmin (maxLen, start + 64);
+                s.startSample = start;
+                s.endSample = end;
+                sliceManager.rebuildMidiMap();
             }
             break;
         }
@@ -277,28 +465,15 @@ void IntersectProcessor::handleCommand (const Command& cmd)
                 if (newIdx >= 0)
                 {
                     auto& dst = sliceManager.getSlice (newIdx);
-                    dst.bpm             = src.bpm;
-                    dst.pitchSemitones  = src.pitchSemitones;
-                    dst.algorithm       = src.algorithm;
-                    dst.attackSec       = src.attackSec;
-                    dst.decaySec        = src.decaySec;
-                    dst.sustainLevel    = src.sustainLevel;
-                    dst.releaseSec      = src.releaseSec;
-                    dst.muteGroup       = src.muteGroup;
-                    dst.loopMode        = src.loopMode;
-                    dst.stretchEnabled  = src.stretchEnabled;
-                    dst.tonalityHz      = src.tonalityHz;
-                    dst.formantSemitones = src.formantSemitones;
-                    dst.formantComp     = src.formantComp;
-                    dst.grainMode       = src.grainMode;
-                    dst.volume          = src.volume;
-                    dst.releaseTail     = src.releaseTail;
-                    dst.reverse         = src.reverse;
-                    dst.outputBus       = src.outputBus;
-                    dst.oneShot         = src.oneShot;
-                    dst.lockMask        = src.lockMask;
-                    dst.colour          = src.colour;
-                    // midiNote is already assigned by createSlice
+                    int savedNote = dst.midiNote;  // assigned by createSlice
+                    dst = src;                     // copy all params, lockMask, colour
+                    dst.midiNote = savedNote;      // restore unique MIDI note
+                    if (cmd.intParam1 >= 0)        // ctrl-drag: use explicit position
+                    {
+                        dst.startSample = cmd.intParam1;
+                        dst.endSample   = cmd.intParam2;
+                    }
+                    // else (intParam1 == -1): inherit src.startSample/endSample as-is
                     sliceManager.selectedSlice = newIdx;
                 }
             }
@@ -336,26 +511,14 @@ void IntersectProcessor::handleCommand (const Command& cmd)
                     if (idx >= 0)
                     {
                         auto& dst = sliceManager.getSlice (idx);
-                        dst.bpm = srcCopy.bpm;
-                        dst.pitchSemitones = srcCopy.pitchSemitones;
-                        dst.algorithm = srcCopy.algorithm;
-                        dst.attackSec = srcCopy.attackSec;
-                        dst.decaySec = srcCopy.decaySec;
-                        dst.sustainLevel = srcCopy.sustainLevel;
-                        dst.releaseSec = srcCopy.releaseSec;
-                        dst.muteGroup = srcCopy.muteGroup;
-                        dst.loopMode = srcCopy.loopMode;
-                        dst.stretchEnabled = srcCopy.stretchEnabled;
-                        dst.tonalityHz = srcCopy.tonalityHz;
-                        dst.formantSemitones = srcCopy.formantSemitones;
-                        dst.formantComp = srcCopy.formantComp;
-                        dst.grainMode = srcCopy.grainMode;
-                        dst.volume = srcCopy.volume;
-                        dst.releaseTail = srcCopy.releaseTail;
-                        dst.reverse = srcCopy.reverse;
-                        dst.outputBus = srcCopy.outputBus;
-                        dst.oneShot = srcCopy.oneShot;
-                        dst.lockMask = srcCopy.lockMask;
+                        int savedNote      = dst.midiNote;  // assigned by createSlice
+                        juce::Colour savedColour = dst.colour;  // assigned from palette
+                        dst = srcCopy;         // copy all params + lockMask
+                        dst.startSample = s;
+                        dst.endSample   = e;
+                        dst.midiNote    = savedNote;
+                        dst.colour      = savedColour;
+                        dst.active      = true;
                     }
                     if (i == 0) firstNew = idx;
                 }
@@ -370,7 +533,7 @@ void IntersectProcessor::handleCommand (const Command& cmd)
         case CmdTransientChop:
         {
             int sel = sliceManager.selectedSlice;
-            if (sel >= 0 && sel < sliceManager.getNumSlices() && ! cmd.positions.empty())
+            if (sel >= 0 && sel < sliceManager.getNumSlices() && cmd.numPositions > 0)
             {
                 Slice srcCopy = sliceManager.getSlice (sel);
                 int startS = srcCopy.startSample;
@@ -378,14 +541,16 @@ void IntersectProcessor::handleCommand (const Command& cmd)
 
                 sliceManager.deleteSlice (sel);
 
-                // Build boundary list: [startS, ...positions..., endS]
-                std::vector<int> bounds;
-                bounds.push_back (startS);
-                std::copy (cmd.positions.begin(), cmd.positions.end(), std::back_inserter (bounds));
-                bounds.push_back (endS);
+                // Build fixed-size boundary list: [startS, ...positions..., endS]
+                int bounds[SliceManager::kMaxSlices + 2];
+                int numBounds = 0;
+                bounds[numBounds++] = startS;
+                for (int bi = 0; bi < cmd.numPositions; ++bi)
+                    bounds[numBounds++] = cmd.positions[(size_t) bi];
+                bounds[numBounds++] = endS;
 
                 int firstNew = -1;
-                for (size_t i = 0; i + 1 < bounds.size(); ++i)
+                for (int i = 0; i + 1 < numBounds; ++i)
                 {
                     int s = bounds[i];
                     int e = bounds[i + 1];
@@ -394,26 +559,14 @@ void IntersectProcessor::handleCommand (const Command& cmd)
                     if (idx >= 0)
                     {
                         auto& dst = sliceManager.getSlice (idx);
-                        dst.bpm = srcCopy.bpm;
-                        dst.pitchSemitones = srcCopy.pitchSemitones;
-                        dst.algorithm = srcCopy.algorithm;
-                        dst.attackSec = srcCopy.attackSec;
-                        dst.decaySec = srcCopy.decaySec;
-                        dst.sustainLevel = srcCopy.sustainLevel;
-                        dst.releaseSec = srcCopy.releaseSec;
-                        dst.muteGroup = srcCopy.muteGroup;
-                        dst.loopMode = srcCopy.loopMode;
-                        dst.stretchEnabled = srcCopy.stretchEnabled;
-                        dst.tonalityHz = srcCopy.tonalityHz;
-                        dst.formantSemitones = srcCopy.formantSemitones;
-                        dst.formantComp = srcCopy.formantComp;
-                        dst.grainMode = srcCopy.grainMode;
-                        dst.volume = srcCopy.volume;
-                        dst.releaseTail = srcCopy.releaseTail;
-                        dst.reverse = srcCopy.reverse;
-                        dst.outputBus = srcCopy.outputBus;
-                        dst.oneShot = srcCopy.oneShot;
-                        dst.lockMask = srcCopy.lockMask;
+                        int savedNote        = dst.midiNote;
+                        juce::Colour savedColour = dst.colour;
+                        dst = srcCopy;
+                        dst.startSample = s;
+                        dst.endSample   = e;
+                        dst.midiNote    = savedNote;
+                        dst.colour      = savedColour;
+                        dst.active      = true;
                     }
                     if (firstNew < 0) firstNew = idx;
                 }
@@ -426,11 +579,17 @@ void IntersectProcessor::handleCommand (const Command& cmd)
         }
 
         case CmdRelinkFile:
-            if (sampleData.loadFromFile (cmd.fileParam, currentSampleRate))
+            requestSampleLoad (cmd.fileParam, LoadKindRelink);
+            break;
+
+        case CmdFileLoadFailed:
+            if (cmd.intParam1 == latestLoadToken.load (std::memory_order_acquire)
+                && cmd.intParam2 == (int) LoadKindRelink)
             {
-                sampleMissing.store (false);
-                missingFilePath.clear();
-                sliceManager.rebuildMidiMap();
+                sampleMissing.store (true);
+                missingFilePath = cmd.fileParam.getFullPathName();
+                sampleData.setFileName (cmd.fileParam.getFileName());
+                sampleData.setFilePath (cmd.fileParam.getFullPathName());
             }
             break;
 
@@ -445,7 +604,13 @@ void IntersectProcessor::handleCommand (const Command& cmd)
             break;
 
         case CmdBeginGesture:
-            break; // snapshot already captured by default path above
+            break;
+
+        case CmdPanic:
+            voicePool.killAll();
+            lazyChop.stop (voicePool, sliceManager);
+            std::fill (std::begin (heldNotes), std::end (heldNotes), false);
+            break;
 
         case CmdNone:
             break;
@@ -472,6 +637,33 @@ void IntersectProcessor::processMidi (const juce::MidiBuffer& midi)
             }
             else
             {
+                heldNotes[note] = true;
+
+                // Build params once; all param loads happen here, not inside the slice loop.
+                VoiceStartParams p;
+                p.note             = note;
+                p.velocity         = velocity;
+                p.globalBpm        = bpmParam->load();
+                p.globalPitch      = pitchParam->load();
+                p.globalAlgorithm  = (int) algoParam->load();
+                p.globalAttackSec  = attackParam->load()  / 1000.0f;
+                p.globalDecaySec   = decayParam->load()   / 1000.0f;
+                p.globalSustain    = sustainParam->load() / 100.0f;
+                p.globalReleaseSec = releaseParam->load() / 1000.0f;
+                p.globalMuteGroup  = (int) muteGroupParam->load();
+                p.globalStretch    = stretchParam->load()      > 0.5f;
+                p.dawBpm           = dawBpm.load();
+                p.globalTonality   = tonalityParam->load();
+                p.globalFormant    = formantParam->load();
+                p.globalFormantComp = formantCompParam->load() > 0.5f;
+                p.globalGrainMode  = (int) grainModeParam->load();
+                p.globalVolume     = masterVolParam->load();
+                p.globalReleaseTail = releaseTailParam->load() > 0.5f;
+                p.globalReverse    = reverseParam->load()      > 0.5f;
+                p.globalLoopMode   = (int) loopParam->load();
+                p.globalOneShot    = oneShotParam->load()      > 0.5f;
+                p.globalCentsDetune = centsDetuneParam->load();
+
                 const auto& sliceIndices = sliceManager.midiNoteToSlices (note);
                 for (int sliceIdx : sliceIndices)
                 {
@@ -481,48 +673,40 @@ void IntersectProcessor::processMidi (const juce::MidiBuffer& midi)
                     int voiceIdx = voicePool.allocate();
 
                     // Handle mute groups
-                    float globalMG = muteGroupParam->load();
                     const auto& s = sliceManager.getSlice (sliceIdx);
                     int mg = (int) sliceManager.resolveParam (sliceIdx, kLockMuteGroup,
-                                                              (float) s.muteGroup, globalMG);
+                                                              (float) s.muteGroup, (float) p.globalMuteGroup);
                     voicePool.muteGroup (mg, voiceIdx);
 
-                    voicePool.startVoice (voiceIdx, sliceIdx, velocity, note,
-                                          sliceManager,
-                                          bpmParam->load(),
-                                          pitchParam->load(),
-                                          (int) algoParam->load(),
-                                          attackParam->load() / 1000.0f,
-                                          decayParam->load() / 1000.0f,
-                                          sustainParam->load() / 100.0f,
-                                          releaseParam->load() / 1000.0f,
-                                          (int) muteGroupParam->load(),
-                                          stretchParam->load() > 0.5f,
-                                          dawBpm.load(),
-                                          tonalityParam->load(),
-                                          formantParam->load(),
-                                          formantCompParam->load() > 0.5f,
-                                          (int) grainModeParam->load(),
-                                          masterVolParam->load(),
-                                          releaseTailParam->load() > 0.5f,
-                                          reverseParam->load() > 0.5f,
-                                          (int) loopParam->load(),
-                                          oneShotParam->load() > 0.5f,
-                                          sampleData);
+                    p.sliceIdx = sliceIdx;
+                    voicePool.startVoice (voiceIdx, p, sliceManager, sampleData);
                 }
             }
         }
         else if (msg.isNoteOff())
         {
-            voicePool.releaseNote (msg.getNoteNumber());
+            int note = msg.getNoteNumber();
+            if (heldNotes[note])
+            {
+                heldNotes[note] = false;
+                voicePool.releaseNote (note);           // normal: respects oneShot
+            }
+            else
+            {
+                voicePool.releaseNoteForced (note);     // host sweep: kills even oneShot voices
+            }
         }
         else if (msg.isAllNotesOff())
         {
-            voicePool.releaseAll (false);  // graceful release (respects envelope)
+            voicePool.releaseAll();  // 50ms fade on all active voices
+            lazyChop.stop (voicePool, sliceManager);
+            std::fill (std::begin (heldNotes), std::end (heldNotes), false);
         }
         else if (msg.isAllSoundOff())
         {
-            voicePool.releaseAll (true);   // immediate kill (5ms fade)
+            voicePool.killAll();     // 5ms hard kill on all active voices
+            lazyChop.stop (voicePool, sliceManager);
+            std::fill (std::begin (heldNotes), std::end (heldNotes), false);
         }
     }
 }
@@ -549,7 +733,41 @@ void IntersectProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         }
     }
 
+    // Poll shift preview request (atomic, avoids FIFO latency)
+    {
+        int req = shiftPreviewRequest.exchange (-2, std::memory_order_relaxed);
+        if (req == -1)
+            voicePool.stopShiftPreview();
+        else if (req >= 0 && ! lazyChop.isActive() && sampleData.isLoaded())
+            voicePool.startShiftPreview (req, sampleData.getNumFrames(),
+                                         currentSampleRate, sampleData);
+    }
+
+    {
+        auto* rawDecoded = completedLoadData.exchange (nullptr, std::memory_order_acq_rel);
+        if (rawDecoded != nullptr)
+        {
+            std::unique_ptr<SampleData::DecodedSample> decoded (rawDecoded);
+            clearVoicesBeforeSampleSwap();
+            sampleData.applyDecodedSample (std::move (decoded));
+            sampleMissing.store (false);
+            missingFilePath.clear();
+
+            if (latestLoadKind.load (std::memory_order_acquire) == (int) LoadKindReplace)
+                sliceManager.clearAll();
+            else
+                sliceManager.rebuildMidiMap();
+        }
+    }
+
     drainCommands();
+
+    if (gestureSnapshotCaptured)
+    {
+        ++blocksSinceGestureActivity;
+        if (blocksSinceGestureActivity > 2)
+            gestureSnapshotCaptured = false;
+    }
 
     // Update max active voices from param
     voicePool.setMaxActiveVoices ((int) maxVoicesParam->load());
@@ -597,7 +815,7 @@ void IntersectProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     else
     {
         // Multi-out: route each voice to its assigned bus
-        constexpr int previewIdx = VoicePool::kMaxVoices - 1;
+        constexpr int previewIdx = VoicePool::kPreviewVoiceIndex;
         for (int i = 0; i < buffer.getNumSamples(); ++i)
         {
             for (int vi = 0; vi < voicePool.getMaxActiveVoices(); ++vi)
@@ -647,7 +865,7 @@ void IntersectProcessor::getStateInformation (juce::MemoryBlock& destData)
     juce::MemoryOutputStream stream (destData, false);
 
     // Version
-    stream.writeInt (15);
+    stream.writeInt (16);
 
     // APVTS state
     auto state = apvts.copyState();
@@ -699,6 +917,8 @@ void IntersectProcessor::getStateInformation (juce::MemoryBlock& destData)
         stream.writeInt (s.outputBus);
         // v15 fields
         stream.writeBool (s.oneShot);
+        // v16 fields
+        stream.writeFloat (s.centsDetune);
     }
 
     // v9: store file path only (no PCM)
@@ -714,7 +934,7 @@ void IntersectProcessor::setStateInformation (const void* data, int sizeInBytes)
     juce::MemoryInputStream stream (data, (size_t) sizeInBytes, false);
 
     int version = stream.readInt();
-    if (version < 14 || version > 15)
+    if (version != 16)
         return;
 
     // APVTS state
@@ -761,8 +981,8 @@ void IntersectProcessor::setStateInformation (const void* data, int sizeInBytes)
         s.releaseTail = stream.readBool();
         s.reverse = stream.readBool();
         s.outputBus = stream.readInt();
-        // v15 fields
-        s.oneShot = (version >= 15) ? stream.readBool() : false;
+        s.oneShot = stream.readBool();
+        s.centsDetune = stream.readFloat();
     }
 
     // Path-based sample restore
@@ -776,6 +996,7 @@ void IntersectProcessor::setStateInformation (const void* data, int sizeInBytes)
         if (f.existsAsFile() && sampleData.loadFromFile (f, sr))
         {
             sampleMissing.store (false);
+            missingFilePath.clear();
         }
         else
         {
@@ -784,6 +1005,11 @@ void IntersectProcessor::setStateInformation (const void* data, int sizeInBytes)
             sampleData.setFileName (fileName);
             sampleData.setFilePath (filePath);
         }
+    }
+    else
+    {
+        sampleMissing.store (false);
+        missingFilePath.clear();
     }
 
     sliceManager.rebuildMidiMap();

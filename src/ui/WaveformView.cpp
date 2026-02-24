@@ -78,6 +78,26 @@ void WaveformView::paint (juce::Graphics& g)
             }
         }
 
+        // Draw ghost overlay for Ctrl-drag duplicate
+        if (dragMode == DuplicateSlice)
+        {
+            int gx1 = sampleToPixel (ghostStart);
+            int gx2 = sampleToPixel (ghostEnd);
+            if (gx2 > gx1)
+            {
+                g.setColour (getTheme().accent.withAlpha (0.15f));
+                g.fillRect (gx1, 0, gx2 - gx1, getHeight());
+                juce::Path p;
+                p.addRectangle ((float) gx1, 0.5f, (float)(gx2 - gx1), (float) getHeight() - 1.0f);
+                float dl[] = { 4.0f, 4.0f };
+                juce::PathStrokeType pst (1.0f);
+                juce::Path dashed;
+                pst.createDashedStroke (dashed, p, dl, 2);
+                g.setColour (getTheme().accent.withAlpha (0.75f));
+                g.strokePath (dashed, pst);
+            }
+        }
+
         // Draw lazy chop preview: highlight between chopPos and playhead
         if (processor.lazyChop.isActive() && processor.lazyChop.isPlaying()
             && processor.lazyChop.getChopPos() >= 0)
@@ -234,8 +254,17 @@ void WaveformView::drawSlices (juce::Graphics& g)
         const auto& s = processor.sliceManager.getSlice (i);
         if (! s.active) continue;
 
-        int x1 = std::max (0, sampleToPixel (s.startSample));
-        int x2 = std::min (getWidth(), sampleToPixel (s.endSample));
+        int drawStartSample = s.startSample;
+        int drawEndSample = s.endSample;
+        if (i == sel && dragSliceIdx == i
+            && (dragMode == DragEdgeLeft || dragMode == DragEdgeRight || dragMode == MoveSlice))
+        {
+            drawStartSample = dragPreviewStart;
+            drawEndSample = dragPreviewEnd;
+        }
+
+        int x1 = std::max (0, sampleToPixel (drawStartSample));
+        int x2 = std::min (getWidth(), sampleToPixel (drawEndSample));
         int sw = x2 - x1;
         if (sw <= 0) continue;
 
@@ -250,20 +279,33 @@ void WaveformView::drawSlices (juce::Graphics& g)
             g.drawVerticalLine (x1, 0.0f, (float) getHeight());
             g.drawVerticalLine (x2 - 1, 0.0f, (float) getHeight());
 
-            // Triangle handles at bottom for start
-            juce::Path triS;
-            triS.addTriangle ((float) x1, (float) getHeight(),
-                              (float) x1 + 7.0f, (float) getHeight(),
-                              (float) x1, (float) getHeight() - 9.0f);
-            g.setColour (getTheme().foreground.withAlpha (0.9f));
-            g.fillPath (triS);
+            // Triangle handles at bottom for start (larger/brighter when hovered)
+            {
+                bool hov = (hoveredEdge == HoveredEdge::Left);
+                float tw = hov ? 10.0f : 7.0f;
+                float th = hov ? 12.0f : 9.0f;
+                float alpha = hov ? 1.0f : 0.9f;
+                juce::Path triS;
+                triS.addTriangle ((float) x1, (float) getHeight(),
+                                  (float) x1 + tw, (float) getHeight(),
+                                  (float) x1, (float) getHeight() - th);
+                g.setColour (getTheme().foreground.withAlpha (alpha));
+                g.fillPath (triS);
+            }
 
-            // Triangle handles at bottom for end
-            juce::Path triE;
-            triE.addTriangle ((float) (x2 - 1), (float) getHeight(),
-                              (float) (x2 - 1) - 7.0f, (float) getHeight(),
-                              (float) (x2 - 1), (float) getHeight() - 9.0f);
-            g.fillPath (triE);
+            // Triangle handles at bottom for end (larger/brighter when hovered)
+            {
+                bool hov = (hoveredEdge == HoveredEdge::Right);
+                float tw = hov ? 10.0f : 7.0f;
+                float th = hov ? 12.0f : 9.0f;
+                float alpha = hov ? 1.0f : 0.9f;
+                juce::Path triE;
+                triE.addTriangle ((float) (x2 - 1), (float) getHeight(),
+                                  (float) (x2 - 1) - tw, (float) getHeight(),
+                                  (float) (x2 - 1), (float) getHeight() - th);
+                g.setColour (getTheme().foreground.withAlpha (alpha));
+                g.fillPath (triE);
+            }
 
             // "S" and "E" labels near handles
             g.setFont (IntersectLookAndFeel::makeFont (10.0f, true));
@@ -314,6 +356,51 @@ void WaveformView::resized()
     prevWidth = -1;  // force cache rebuild
 }
 
+void WaveformView::mouseMove (const juce::MouseEvent& e)
+{
+    if (! processor.sampleData.isLoaded()) return;
+    int sel = processor.sliceManager.selectedSlice;
+    int num = processor.sliceManager.getNumSlices();
+    HoveredEdge newEdge = HoveredEdge::None;
+
+    if (sel >= 0 && sel < num && ! sliceDrawMode && ! altModeActive)
+    {
+        const auto& s = processor.sliceManager.getSlice (sel);
+        if (s.active)
+        {
+            int x1 = sampleToPixel (s.startSample);
+            int x2 = sampleToPixel (s.endSample);
+            if      (std::abs (e.x - x1) < 6) newEdge = HoveredEdge::Left;
+            else if (std::abs (e.x - x2) < 6) newEdge = HoveredEdge::Right;
+        }
+    }
+    setMouseCursor (newEdge != HoveredEdge::None
+        ? juce::MouseCursor::LeftRightResizeCursor
+        : juce::MouseCursor::NormalCursor);
+
+    if (newEdge != hoveredEdge) { hoveredEdge = newEdge; repaint(); }
+}
+
+void WaveformView::mouseEnter (const juce::MouseEvent& e) { mouseMove (e); }
+
+void WaveformView::mouseExit (const juce::MouseEvent&)
+{
+    if (hoveredEdge != HoveredEdge::None) { hoveredEdge = HoveredEdge::None; repaint(); }
+}
+
+void WaveformView::modifierKeysChanged (const juce::ModifierKeys& mods)
+{
+    bool alt = mods.isAltDown();
+    if (alt == altModeActive) return;
+    altModeActive = alt;
+    if (alt)
+        setMouseCursor (juce::MouseCursor::CrosshairCursor);
+    else if (dragMode != DrawSlice)
+        setMouseCursor (juce::MouseCursor::NormalCursor);
+    hoveredEdge = HoveredEdge::None;
+    repaint();
+}
+
 void WaveformView::mouseDown (const juce::MouseEvent& e)
 {
     if (! processor.sampleData.isLoaded())
@@ -340,7 +427,16 @@ void WaveformView::mouseDown (const juce::MouseEvent& e)
 
     int samplePos = std::max (0, std::min (pixelToSample (e.x), processor.sampleData.getNumFrames()));
 
-    if (sliceDrawMode)
+    // Shift+click: preview audio from pointer position
+    if (e.mods.isShiftDown() && ! sliceDrawMode && ! altModeActive
+        && ! processor.lazyChop.isActive() && processor.sampleData.isLoaded())
+    {
+        shiftPreviewActive = true;
+        processor.shiftPreviewRequest.store (samplePos, std::memory_order_relaxed);
+        return;
+    }
+
+    if (sliceDrawMode || altModeActive)
     {
         drawStart = samplePos;
         drawEnd = samplePos;
@@ -367,6 +463,8 @@ void WaveformView::mouseDown (const juce::MouseEvent& e)
                 processor.pushCommand (gestureCmd);
                 dragMode = DragEdgeLeft;
                 dragSliceIdx = sel;
+                dragPreviewStart = s.startSample;
+                dragPreviewEnd = s.endSample;
                 return;
             }
             if (std::abs (e.x - x2) < 6)
@@ -376,6 +474,8 @@ void WaveformView::mouseDown (const juce::MouseEvent& e)
                 processor.pushCommand (gestureCmd);
                 dragMode = DragEdgeRight;
                 dragSliceIdx = sel;
+                dragPreviewStart = s.startSample;
+                dragPreviewEnd = s.endSample;
                 return;
             }
 
@@ -384,10 +484,23 @@ void WaveformView::mouseDown (const juce::MouseEvent& e)
                 IntersectProcessor::Command gestureCmd;
                 gestureCmd.type = IntersectProcessor::CmdBeginGesture;
                 processor.pushCommand (gestureCmd);
-                dragMode = MoveSlice;
+
                 dragSliceIdx = sel;
-                dragOffset = samplePos - s.startSample;
+                dragOffset   = samplePos - s.startSample;
                 dragSliceLen = s.endSample - s.startSample;
+
+                if (e.mods.isCtrlDown())
+                {
+                    dragMode   = DuplicateSlice;
+                    ghostStart = s.startSample;
+                    ghostEnd   = s.endSample;
+                }
+                else
+                {
+                    dragMode = MoveSlice;
+                    dragPreviewStart = s.startSample;
+                    dragPreviewEnd = s.endSample;
+                }
                 return;
             }
         }
@@ -436,16 +549,14 @@ void WaveformView::mouseDrag (const juce::MouseEvent& e)
     {
         if (processor.snapToZeroCrossing.load() && processor.sampleData.isLoaded())
             samplePos = AudioAnalysis::findNearestZeroCrossing (processor.sampleData.getBuffer(), samplePos);
-        auto& s = processor.sliceManager.getSlice (dragSliceIdx);
-        s.startSample = std::min (samplePos, s.endSample - 64);
+        dragPreviewStart = std::min (samplePos, dragPreviewEnd - 64);
         repaint();
     }
     else if (dragMode == DragEdgeRight && dragSliceIdx >= 0)
     {
         if (processor.snapToZeroCrossing.load() && processor.sampleData.isLoaded())
             samplePos = AudioAnalysis::findNearestZeroCrossing (processor.sampleData.getBuffer(), samplePos);
-        auto& s = processor.sliceManager.getSlice (dragSliceIdx);
-        s.endSample = std::max (samplePos, s.startSample + 64);
+        dragPreviewEnd = std::max (samplePos, dragPreviewStart + 64);
         repaint();
     }
     else if (dragMode == MoveSlice && dragSliceIdx >= 0)
@@ -458,15 +569,30 @@ void WaveformView::mouseDrag (const juce::MouseEvent& e)
         if (newStart < 0) { newStart = 0; newEnd = dragSliceLen; }
         if (newEnd > maxLen) { newEnd = maxLen; newStart = maxLen - dragSliceLen; }
 
-        auto& s = processor.sliceManager.getSlice (dragSliceIdx);
-        s.startSample = newStart;
-        s.endSample = newEnd;
+        dragPreviewStart = newStart;
+        dragPreviewEnd = newEnd;
+        repaint();
+    }
+    else if (dragMode == DuplicateSlice && dragSliceIdx >= 0)
+    {
+        int maxLen   = processor.sampleData.getNumFrames();
+        int newStart = juce::jlimit (0, maxLen - dragSliceLen, samplePos - dragOffset);
+        ghostStart   = newStart;
+        ghostEnd     = newStart + dragSliceLen;
         repaint();
     }
 }
 
 void WaveformView::mouseUp (const juce::MouseEvent& e)
 {
+    // Stop shift preview
+    if (shiftPreviewActive)
+    {
+        shiftPreviewActive = false;
+        processor.shiftPreviewRequest.store (-1, std::memory_order_relaxed);
+        return;
+    }
+
     if (midDragging)
     {
         midDragging = false;
@@ -481,25 +607,53 @@ void WaveformView::mouseUp (const juce::MouseEvent& e)
             drawStart = AudioAnalysis::findNearestZeroCrossing (processor.sampleData.getBuffer(), drawStart);
             endPos = AudioAnalysis::findNearestZeroCrossing (processor.sampleData.getBuffer(), endPos);
         }
-        if (std::abs (endPos - drawStart) > 64)
+        if (std::abs (endPos - drawStart) >= 64)
         {
             IntersectProcessor::Command cmd;
             cmd.type = IntersectProcessor::CmdCreateSlice;
             cmd.intParam1 = drawStart;
             cmd.intParam2 = endPos;
             processor.pushCommand (cmd);
-            sliceDrawMode = false;
-            setMouseCursor (juce::MouseCursor::NormalCursor);
+            if (! altModeActive)
+            {
+                sliceDrawMode = false;
+                setMouseCursor (juce::MouseCursor::NormalCursor);
+            }
         }
         // If click without dragging (< 64 samples), keep draw mode active
     }
     else if (dragMode == DragEdgeLeft || dragMode == DragEdgeRight || dragMode == MoveSlice)
     {
-        processor.sliceManager.rebuildMidiMap();
+        if (dragSliceIdx >= 0)
+        {
+            IntersectProcessor::Command cmd;
+            cmd.type = IntersectProcessor::CmdSetSliceBounds;
+            cmd.intParam1 = dragSliceIdx;
+            cmd.intParam2 = dragPreviewStart;
+            cmd.positions[0] = dragPreviewEnd;
+            cmd.numPositions = 1;
+            processor.pushCommand (cmd);
+        }
+    }
+    else if (dragMode == DuplicateSlice)
+    {
+        if (processor.snapToZeroCrossing.load())
+        {
+            ghostStart = AudioAnalysis::findNearestZeroCrossing (
+                processor.sampleData.getBuffer(), ghostStart);
+            ghostEnd   = ghostStart + dragSliceLen;
+        }
+        IntersectProcessor::Command cmd;
+        cmd.type      = IntersectProcessor::CmdDuplicateSlice;
+        cmd.intParam1 = ghostStart;
+        cmd.intParam2 = ghostEnd;
+        processor.pushCommand (cmd);
     }
 
     dragMode = None;
     dragSliceIdx = -1;
+    dragPreviewStart = 0;
+    dragPreviewEnd = 0;
 }
 
 void WaveformView::mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& w)

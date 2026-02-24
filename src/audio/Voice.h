@@ -27,12 +27,11 @@ struct Voice
     int          endSample    = 0;
     bool         pingPong     = false;
     int          muteGroup    = 0;
-    int          age          = 0;
     bool         looping      = false;
     float        volume       = 1.0f;
     bool         releaseTail  = false;
     bool         oneShot      = false;
-    int          sampleEnd    = 0;       // actual end of sample buffer (for release tail)
+    int          bufferEnd    = 0;       // actual end of sample buffer (for release tail)
     int          outputBus    = 0;       // output bus index (0-15)
 
     // Signalsmith stretch fields

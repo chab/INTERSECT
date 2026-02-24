@@ -46,7 +46,8 @@ inline int findNearestZeroCrossing (const juce::AudioBuffer<float>& buffer, int 
 
 inline std::vector<int> detectTransients (const juce::AudioBuffer<float>& buffer,
                                            int start, int end,
-                                           float sensitivity = 1.0f)
+                                           float sensitivity = 1.0f,
+                                           double sampleRate = 44100.0)
 {
     std::vector<int> onsets;
 
@@ -59,7 +60,8 @@ inline std::vector<int> detectTransients (const juce::AudioBuffer<float>& buffer
 
     constexpr int windowSize = 1024;
     constexpr int hopSize = 256;
-    constexpr int minOnsetDist = 4410;  // ~100ms at 44.1kHz
+    int minOnsetDist = (int) std::round (sampleRate * 0.1);  // 100ms
+    minOnsetDist = std::max (1, minOnsetDist);
     constexpr int peakRadius = 3;       // local max must beat 3 neighbours each side
 
     // Step 1: Compute RMS energy per window

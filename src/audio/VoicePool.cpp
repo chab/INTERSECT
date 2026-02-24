@@ -52,11 +52,11 @@ int VoicePool::allocate()
 
 void VoicePool::setMaxActiveVoices (int n)
 {
-    n = juce::jlimit (1, kMaxVoices, n);
+    n = juce::jlimit (1, kMaxVoices - 1, n);
     if (n < maxActive)
     {
-        // Kill voices beyond new limit (but preserve preview voice)
-        constexpr int previewIdx = kMaxVoices - 1;
+        // Kill voices beyond new limit (preview is permanently reserved).
+        constexpr int previewIdx = kPreviewVoiceIndex;
         for (int i = n; i < maxActive; ++i)
         {
             if (i == previewIdx) continue;
@@ -139,91 +139,85 @@ void VoicePool::initBungee (Voice& v, float pitchSemis, double sr, int grainMode
     v.bungeeInputBuf.resize ((size_t) maxIn * 2);
 }
 
-void VoicePool::startVoice (int voiceIdx, int sliceIdx, float velocity, int note,
-                            SliceManager& sm,
-                            float globalBpm, float globalPitch, int globalAlgorithm,
-                            float globalAttack, float globalDecay, float globalSustain, float globalRelease,
-                            int globalMuteGroup,
-                            bool globalStretchEnabled, float dawBpmVal,
-                            float globalTonality, float globalFormant, bool globalFormantComp,
-                            int globalGrainMode, float globalVolume,
-                            bool globalReleaseTail,
-                            bool globalReverse,
-                            int globalLoopMode,
-                            bool globalOneShot,
-                            const SampleData& sample)
+void VoicePool::startVoice (int voiceIdx, const VoiceStartParams& p,
+                            SliceManager& sm, const SampleData& sample)
 {
     auto& v = voices[voiceIdx];
+    const int sliceIdx = p.sliceIdx;
     const auto& s = sm.getSlice (sliceIdx);
 
     v.active    = true;
     v.sliceIdx  = sliceIdx;
-    v.midiNote  = note;
-    v.velocity  = velocity / 127.0f;
-    v.age       = 0;
+    v.midiNote  = p.note;
+    v.velocity  = p.velocity / 127.0f;
 
     v.startSample = s.startSample;
     v.endSample   = s.endSample;
 
     // Resolve parameters via inheritance
-    float attack   = sm.resolveParam (sliceIdx, kLockAttack,    s.attackSec,      globalAttack);
-    float decay    = sm.resolveParam (sliceIdx, kLockDecay,     s.decaySec,       globalDecay);
-    float sustain  = sm.resolveParam (sliceIdx, kLockSustain,   s.sustainLevel,   globalSustain);
-    float release  = sm.resolveParam (sliceIdx, kLockRelease,   s.releaseSec,     globalRelease);
+    float attack   = sm.resolveParam (sliceIdx, kLockAttack,   s.attackSec,    p.globalAttackSec);
+    float decay    = sm.resolveParam (sliceIdx, kLockDecay,    s.decaySec,     p.globalDecaySec);
+    float sustain  = sm.resolveParam (sliceIdx, kLockSustain,  s.sustainLevel, p.globalSustain);
+    float release  = sm.resolveParam (sliceIdx, kLockRelease,  s.releaseSec,   p.globalReleaseSec);
 
-    v.envelope.noteOn (attack, decay, sustain, release);
+    v.envelope.noteOn (attack, decay, sustain, release, sampleRate);
 
-    int resolvedLoopMode = (int) sm.resolveParam (sliceIdx, kLockLoop, (float) s.loopMode, (float) globalLoopMode);
+    int resolvedLoopMode = (int) sm.resolveParam (sliceIdx, kLockLoop, (float) s.loopMode, (float) p.globalLoopMode);
     v.looping    = (resolvedLoopMode == 1);
     v.pingPong   = (resolvedLoopMode == 2);
-    v.muteGroup  = (int) sm.resolveParam (sliceIdx, kLockMuteGroup, (float) s.muteGroup, (float) globalMuteGroup);
+    v.muteGroup  = (int) sm.resolveParam (sliceIdx, kLockMuteGroup, (float) s.muteGroup, (float) p.globalMuteGroup);
 
     bool rev = sm.resolveParam (sliceIdx, kLockReverse,
                                  s.reverse ? 1.0f : 0.0f,
-                                 globalReverse ? 1.0f : 0.0f) > 0.5f;
+                                 p.globalReverse ? 1.0f : 0.0f) > 0.5f;
     v.direction = rev ? -1 : 1;
     v.position  = rev ? (s.endSample - 1) : s.startSample;
 
     v.outputBus = (int) sm.resolveParam (sliceIdx, kLockOutputBus, (float) s.outputBus, 0.0f);
 
-    int algo = (int) sm.resolveParam (sliceIdx, kLockAlgorithm, (float) s.algorithm, (float) globalAlgorithm);
+    int algo = (int) sm.resolveParam (sliceIdx, kLockAlgorithm, (float) s.algorithm, (float) p.globalAlgorithm);
 
-    float sliceBpm = sm.resolveParam (sliceIdx, kLockBpm, s.bpm, globalBpm);
-    float pitch = sm.resolveParam (sliceIdx, kLockPitch, s.pitchSemitones, globalPitch);
+    float sliceBpm = sm.resolveParam (sliceIdx, kLockBpm,   s.bpm,            p.globalBpm);
+    float pitchSt  = sm.resolveParam (sliceIdx, kLockPitch,       s.pitchSemitones, p.globalPitch);
+    float cents    = sm.resolveParam (sliceIdx, kLockCentsDetune, s.centsDetune,    p.globalCentsDetune);
+    float pitch    = pitchSt + cents / 100.0f;
     float pitchRatio = std::pow (2.0f, pitch / 12.0f);
 
     bool stretchOn = sm.resolveParam (sliceIdx, kLockStretch,
                                        s.stretchEnabled ? 1.0f : 0.0f,
-                                       globalStretchEnabled ? 1.0f : 0.0f) > 0.5f;
+                                       p.globalStretch ? 1.0f : 0.0f) > 0.5f;
 
-    float tonality = sm.resolveParam (sliceIdx, kLockTonality, s.tonalityHz, globalTonality);
-    float formant = sm.resolveParam (sliceIdx, kLockFormant, s.formantSemitones, globalFormant);
-    bool fComp = sm.resolveParam (sliceIdx, kLockFormantComp,
-                                   s.formantComp ? 1.0f : 0.0f,
-                                   globalFormantComp ? 1.0f : 0.0f) > 0.5f;
+    float tonality = sm.resolveParam (sliceIdx, kLockTonality,    s.tonalityHz,       p.globalTonality);
+    float formant  = sm.resolveParam (sliceIdx, kLockFormant,     s.formantSemitones, p.globalFormant);
+    bool fComp     = sm.resolveParam (sliceIdx, kLockFormantComp,
+                                       s.formantComp ? 1.0f : 0.0f,
+                                       p.globalFormantComp ? 1.0f : 0.0f) > 0.5f;
 
     int grainMode = (int) sm.resolveParam (sliceIdx, kLockGrainMode,
-                                           (float) s.grainMode, (float) globalGrainMode);
-    // Convert grainMode choice index (0=Fast, 1=Normal, 2=Smooth) to log2 hop adjust (-1, 0, +1)
+                                           (float) s.grainMode, (float) p.globalGrainMode);
+    // Convert grainMode index (0=Fast, 1=Normal, 2=Smooth) to log2 hop adjust (-1, 0, +1)
     int hopAdj = grainMode - 1;
 
-    v.volume = dbToLinear (sm.resolveParam (sliceIdx, kLockVolume, s.volume, globalVolume));
+    v.volume = dbToLinear (sm.resolveParam (sliceIdx, kLockVolume, s.volume, p.globalVolume));
 
     v.releaseTail = sm.resolveParam (sliceIdx, kLockReleaseTail,
                                       s.releaseTail ? 1.0f : 0.0f,
-                                      globalReleaseTail ? 1.0f : 0.0f) > 0.5f;
+                                      p.globalReleaseTail ? 1.0f : 0.0f) > 0.5f;
     v.oneShot = sm.resolveParam (sliceIdx, kLockOneShot,
                                   s.oneShot ? 1.0f : 0.0f,
-                                  globalOneShot ? 1.0f : 0.0f) > 0.5f;
-    v.sampleEnd = sample.getNumFrames();
+                                  p.globalOneShot ? 1.0f : 0.0f) > 0.5f;
+    v.bufferEnd = sample.getNumFrames();
 
-    // Reset stretch state
-    v.stretchActive = false;
-    v.bungeeActive = false;
+    // Reset stretch state and ping-pong fade (guard against stale data from stolen voices)
+    v.stretchActive  = false;
+    v.bungeeActive   = false;
+    v.bungeePPFade   = 0;
+    v.bungeePPFadeL.clear();
+    v.bungeePPFadeR.clear();
 
-    if (stretchOn && dawBpmVal > 0.0f && sliceBpm > 0.0f)
+    if (stretchOn && p.dawBpm > 0.0f && sliceBpm > 0.0f)
     {
-        float speedRatio = dawBpmVal / sliceBpm;
+        float speedRatio = p.dawBpm / sliceBpm;
 
         if (algo == 0)
         {
@@ -285,7 +279,7 @@ void VoicePool::startVoice (int voiceIdx, int sliceIdx, float velocity, int note
 
 void VoicePool::releaseNote (int note)
 {
-    for (int i = 0; i < kMaxVoices; ++i)
+    for (int i = 0; i < maxActive; ++i)
     {
         if (voices[i].active && voices[i].midiNote == note)
         {
@@ -296,18 +290,25 @@ void VoicePool::releaseNote (int note)
     }
 }
 
-void VoicePool::releaseAll (bool immediate)
+void VoicePool::releaseNoteForced (int note)
 {
-    for (int i = 0; i < kMaxVoices; ++i)
-    {
+    for (int i = 0; i < maxActive; ++i)
+        if (voices[i].active && voices[i].midiNote == note)
+            voices[i].envelope.forceRelease (kKillReleaseSec, sampleRate);
+}
+
+void VoicePool::releaseAll()
+{
+    for (int i = 0; i < maxActive; ++i)
         if (voices[i].active)
-        {
-            if (immediate)
-                voices[i].envelope.forceRelease (0.005f);
-            else
-                voices[i].envelope.noteOff();
-        }
-    }
+            voices[i].envelope.forceRelease (kShortReleaseSec, sampleRate);
+}
+
+void VoicePool::killAll()
+{
+    for (int i = 0; i < maxActive; ++i)
+        if (voices[i].active)
+            voices[i].envelope.forceRelease (kKillReleaseSec, sampleRate);
 }
 
 void VoicePool::muteGroup (int group, int exceptVoice)
@@ -315,10 +316,10 @@ void VoicePool::muteGroup (int group, int exceptVoice)
     if (group <= 0)
         return;
 
-    for (int i = 0; i < kMaxVoices; ++i)
+    for (int i = 0; i < maxActive; ++i)
     {
         if (i != exceptVoice && voices[i].active && voices[i].muteGroup == group)
-            voices[i].envelope.forceRelease (0.005f);
+            voices[i].envelope.forceRelease (kKillReleaseSec, sampleRate);
     }
 }
 
@@ -334,7 +335,7 @@ static void fillStretchBlock (Voice& v, const SampleData& sample)
     {
         double pos = v.stretchSrcPos;
         // Clamp to sample buffer bounds for safety
-        pos = juce::jlimit (0.0, (double) v.sampleEnd - 1, pos);
+        pos = juce::jlimit (0.0, (double) v.bufferEnd - 1, pos);
         v.stretchInBufL[(size_t) i] = sample.getInterpolatedSample (pos, 0);
         v.stretchInBufR[(size_t) i] = sample.getInterpolatedSample (pos, 1);
         v.stretchSrcPos += (double) v.direction;
@@ -351,9 +352,9 @@ static void fillStretchBlock (Voice& v, const SampleData& sample)
             {
                 v.stretchSrcPos = v.startSample;
             }
-            else if (v.releaseTail && v.stretchSrcPos < v.sampleEnd)
+            else if (v.releaseTail && v.stretchSrcPos < v.bufferEnd)
             {
-                v.stretchSrcPos = std::min (v.stretchSrcPos, (double) v.sampleEnd - 1);
+                v.stretchSrcPos = std::min (v.stretchSrcPos, (double) v.bufferEnd - 1);
             }
             else
             {
@@ -461,7 +462,7 @@ static void fillBungeeBlock (Voice& v, const SampleData& sample)
     v.bungeeInputBuf.resize ((size_t) maxIn * 2);
 
     // Determine effective end for reading (release tail allows reading past slice end)
-    int effectiveEnd = v.releaseTail && !v.pingPong ? v.sampleEnd : v.endSample;
+    int effectiveEnd = v.releaseTail && !v.pingPong ? v.bufferEnd : v.endSample;
 
     // Fill input buffer (non-interleaved: ch0 then ch1)
     for (int i = 0; i < numFrames; ++i)
@@ -522,7 +523,7 @@ static void fillBungeeBlock (Voice& v, const SampleData& sample)
     }
 }
 
-void VoicePool::processVoiceSample (int i, const SampleData& sample, double sr,
+void VoicePool::processVoiceSample (int i, const SampleData& sample, double /*sr*/,
                                      float& outL, float& outR)
 {
     auto& v = voices[i];
@@ -537,7 +538,7 @@ void VoicePool::processVoiceSample (int i, const SampleData& sample, double sr,
     if (v.stretchActive)
     {
         // Signalsmith Stretch processing
-        float env = v.envelope.processSample (sr);
+        float env = v.envelope.processSample();
 
         if (v.envelope.isDone())
         {
@@ -564,7 +565,7 @@ void VoicePool::processVoiceSample (int i, const SampleData& sample, double sr,
                         v.stretchSrcPos = v.endSample - 1;
                     fillStretchBlock (v, sample);
                 }
-                else if (v.releaseTail && v.stretchSrcPos < v.sampleEnd && v.stretchSrcPos >= 0)
+                else if (v.releaseTail && v.stretchSrcPos < v.bufferEnd && v.stretchSrcPos >= 0)
                 {
                     if (v.envelope.getState() != AdsrEnvelope::Release)
                         v.envelope.noteOff();
@@ -589,13 +590,12 @@ void VoicePool::processVoiceSample (int i, const SampleData& sample, double sr,
             v.stretchOutReadPos++;
         }
 
-        v.age++;
         voicePositions[i].store ((float) v.stretchSrcPos, std::memory_order_relaxed);
     }
     else if (v.bungeeActive)
     {
         // Bungee Stretch processing
-        float env = v.envelope.processSample (sr);
+        float env = v.envelope.processSample();
 
         if (v.envelope.isDone())
         {
@@ -623,7 +623,7 @@ void VoicePool::processVoiceSample (int i, const SampleData& sample, double sr,
                     v.bungeeResetNeeded = true;
                     fillBungeeBlock (v, sample);
                 }
-                else if (v.releaseTail && v.bungeeSrcPos < v.sampleEnd && v.bungeeSrcPos >= 0)
+                else if (v.releaseTail && v.bungeeSrcPos < v.bufferEnd && v.bungeeSrcPos >= 0)
                 {
                     if (v.envelope.getState() != AdsrEnvelope::Release)
                         v.envelope.noteOff();
@@ -664,13 +664,12 @@ void VoicePool::processVoiceSample (int i, const SampleData& sample, double sr,
             v.bungeeOutReadPos++;
         }
 
-        v.age++;
         voicePositions[i].store ((float) v.bungeeSrcPos, std::memory_order_relaxed);
     }
     else
     {
         // Process envelope
-        float env = v.envelope.processSample (sr);
+        float env = v.envelope.processSample();
 
         if (v.envelope.isDone())
         {
@@ -682,8 +681,6 @@ void VoicePool::processVoiceSample (int i, const SampleData& sample, double sr,
         // Linear interpolation
         voiceL = sample.getInterpolatedSample (v.position, 0) * env * v.velocity * v.volume;
         voiceR = sample.getInterpolatedSample (v.position, 1) * env * v.velocity * v.volume;
-
-        v.age++;
 
         // Advance position
         double newPos = v.position + v.speed * v.direction;
@@ -713,7 +710,7 @@ void VoicePool::processVoiceSample (int i, const SampleData& sample, double sr,
                     if (newPos < v.startSample)
                         newPos += len;
                 }
-                else if (v.releaseTail && newPos >= v.endSample && newPos < v.sampleEnd)
+                else if (v.releaseTail && newPos >= v.endSample && newPos < v.bufferEnd)
                 {
                     if (v.envelope.getState() != AdsrEnvelope::Release)
                         v.envelope.noteOff();
@@ -757,7 +754,7 @@ void VoicePool::processSample (const SampleData& sample, double sr,
 
     // Always process the preview voice (used by LazyChopEngine)
     // even if it's outside the maxActive range
-    constexpr int previewIdx = kMaxVoices - 1;
+    constexpr int previewIdx = kPreviewVoiceIndex;
     if (previewIdx >= maxActive && voices[previewIdx].active)
     {
         float vL = 0.0f, vR = 0.0f;
@@ -765,6 +762,35 @@ void VoicePool::processSample (const SampleData& sample, double sr,
         outL += vL;
         outR += vR;
     }
+}
+
+void VoicePool::startShiftPreview (int startSample, int bufferSize,
+                                    double sr, const SampleData& /*sd*/)
+{
+    // Shares the lazyChop preview slot; only called when lazyChop is inactive
+    int i = kPreviewVoiceIndex;
+    Voice& v = voices[i];
+    v             = Voice{};
+    v.active      = true;
+    v.position    = (double) startSample;
+    v.startSample = startSample;
+    v.endSample   = bufferSize;
+    v.bufferEnd   = bufferSize;
+    v.speed       = 1.0;
+    v.direction   = 1;
+    v.velocity    = 0.8f;
+    v.volume      = 1.0f;
+    v.midiNote    = -1;
+    v.sliceIdx    = -1;
+    v.envelope.noteOn (0.002f, 0.0f, 1.0f, 0.05f, sr);
+    voicePositions[i].store ((float) startSample, std::memory_order_relaxed);
+}
+
+void VoicePool::stopShiftPreview()
+{
+    int i = kPreviewVoiceIndex;
+    if (voices[i].active)
+        voices[i].envelope.forceRelease (kKillReleaseSec, sampleRate);
 }
 
 void VoicePool::processSampleMultiOut (const SampleData& sample, double sr,

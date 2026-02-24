@@ -22,6 +22,7 @@ private:
         float minVal, maxVal, step;
         bool isBoolean;    // for ping-pong toggle
         bool isChoice;     // for algorithm popup
+        bool isReadOnly = false;
         bool isSetBpm = false;
     };
 
