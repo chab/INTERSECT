@@ -29,7 +29,9 @@ public:
     bool getActiveSlicePreview (int& sliceIdx, int& startSample, int& endSample) const;
     bool isInteracting() const noexcept;
 
-    bool sliceDrawMode = false;
+    void setSliceDrawMode (bool active);
+    bool isSliceDrawModeActive() const noexcept { return sliceDrawMode; }
+
     bool altModeActive = false;
     bool shiftPreviewActive = false;
     std::vector<int> transientPreviewPositions;
@@ -58,14 +60,22 @@ private:
     void drawWaveform (juce::Graphics& g);
     void drawSlices (juce::Graphics& g);
     void drawPlaybackCursors (juce::Graphics& g);
+    void paintDrawSlicePreview (juce::Graphics& g);
+    void paintLazyChopOverlay (juce::Graphics& g);
+    void paintTransientMarkers (juce::Graphics& g);
+
+    // Aggregates all cache-invalidation inputs; rebuild is skipped when unchanged.
+    struct CacheKey
+    {
+        int visibleStart = 0, visibleLen = 0, width = 0, numFrames = 0;
+        const void* samplePtr = nullptr;
+        bool operator== (const CacheKey&) const = default;
+    };
 
     IntersectProcessor& processor;
     WaveformCache cache;
-    int prevVisibleStart = -1;
-    int prevVisibleLen = -1;
-    int prevWidth = 0;
-    int prevNumFrames = 0;
-    const void* prevSamplePtr = nullptr;
+    CacheKey prevCacheKey;
+    bool sliceDrawMode = false;
     mutable ViewState cachedPaintViewState;   // valid only between paint() start and end
     mutable bool paintViewStateActive = false; // true only during paint(); guards cachedPaintViewState
 

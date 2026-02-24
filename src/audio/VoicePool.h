@@ -68,6 +68,7 @@ public:
     int  getMaxActiveVoices() const { return maxActive; }
 
     Voice& getVoice (int idx) { return voices[idx]; }
+    const Voice& getVoice (int idx) const { return voices[idx]; }
 
     void startShiftPreview (int startSample, int bufferSize, double sr, const SampleData& sd);
     void stopShiftPreview();

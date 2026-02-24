@@ -1,4 +1,5 @@
 #include "HeaderBar.h"
+#include "UIHelpers.h"
 #include "IntersectLookAndFeel.h"
 #include "../PluginProcessor.h"
 #include "../PluginEditor.h"
@@ -93,385 +94,357 @@ void HeaderBar::paint (juce::Graphics& g)
     g.fillAll (getTheme().header);
     headerCells.clear();
 
-    const auto& ui = processor.getUiSliceSnapshot();
+    paintRow1 (g);
+    paintRow2 (g);
+}
 
-    if (ui.sampleLoaded)
+void HeaderBar::paintRow1 (juce::Graphics& g)
+{
+    int x = 8;
+    const int row1y  = 2;
+    const int row1h  = 30;
+    const int cellW  = 60;
+    const int cellGap = 4;
+
+    g.setFont (IntersectLookAndFeel::makeFont (14.0f));
+    g.setColour (getTheme().foreground.withAlpha (0.9f));
+
+    // BPM
+    float bpm = processor.apvts.getRawParameterValue (ParamIds::defaultBpm)->load();
+    g.setFont (IntersectLookAndFeel::makeFont (12.0f));
+    g.drawText ("BPM", x, row1y + 2, cellW, 13, juce::Justification::centredLeft);
+    g.setFont (IntersectLookAndFeel::makeFont (14.0f));
     {
-        // --- Row 1: BPM | SET BPM | PITCH | ALGO | TONAL | FMNT | FMNT C | filename | scale btns ---
-        g.setFont (IntersectLookAndFeel::makeFont (14.0f));
-        g.setColour (getTheme().foreground.withAlpha (0.9f));
-
-        int x = 8;
-        int row1y = 2;
-        int row1h = 30;
-
-        int cellW = 60;  // uniform cell width
-        int cellGap = 4; // uniform gap between cells
-
-        // BPM
-        g.setFont (IntersectLookAndFeel::makeFont (12.0f));
-        g.drawText ("BPM", x, row1y + 2, cellW, 13, juce::Justification::centredLeft);
-        g.setFont (IntersectLookAndFeel::makeFont (14.0f));
-        float bpm = processor.apvts.getRawParameterValue (ParamIds::defaultBpm)->load();
+        juce::String bpmStr = juce::String (bpm, 2);
+        if (bpmStr.contains ("."))
         {
-            juce::String bpmStr = juce::String (bpm, 2);
-            if (bpmStr.contains ("."))
-            {
-                while (bpmStr.endsWith ("0")) bpmStr = bpmStr.dropLastCharacters (1);
-                if (bpmStr.endsWith (".")) bpmStr = bpmStr.dropLastCharacters (1);
-            }
-            g.drawText (bpmStr, x, row1y + 15, cellW, 14, juce::Justification::centredLeft);
+            while (bpmStr.endsWith ("0")) bpmStr = bpmStr.dropLastCharacters (1);
+            if (bpmStr.endsWith (".")) bpmStr = bpmStr.dropLastCharacters (1);
         }
-        headerCells.push_back ({ x, row1y, cellW, row1h, ParamIds::defaultBpm, 20.0f, 999.0f, 0.01f, false, false, false, false });
-        x += cellW + cellGap;
+        g.drawText (bpmStr, x, row1y + 15, cellW, 14, juce::Justification::centredLeft);
+    }
+    headerCells.push_back ({ x, row1y, cellW, row1h, ParamIds::defaultBpm, 20.0f, 999.0f, 0.01f, false, false, false, false });
+    x += cellW + cellGap;
 
-        // SET BPM (sample-level)
-        g.setFont (IntersectLookAndFeel::makeFont (12.0f));
-        g.setColour (getTheme().accent);
-        g.drawText ("SET", x + 2, row1y + 2, 34, 13, juce::Justification::centredLeft);
-        g.drawText ("BPM", x + 2, row1y + 15, 34, 13, juce::Justification::centredLeft);
-        headerCells.push_back ({ x, row1y, 38, row1h, juce::String(), 0.0f, 0.0f, 0.0f, false, false, false, true });
-        g.setColour (getTheme().foreground.withAlpha (0.9f));
-        x += 38 + cellGap;
+    // SET BPM (sample-level)
+    g.setFont (IntersectLookAndFeel::makeFont (12.0f));
+    g.setColour (getTheme().accent);
+    g.drawText ("SET", x + 2, row1y + 2, 34, 13, juce::Justification::centredLeft);
+    g.drawText ("BPM", x + 2, row1y + 15, 34, 13, juce::Justification::centredLeft);
+    headerCells.push_back ({ x, row1y, 38, row1h, juce::String(), 0.0f, 0.0f, 0.0f, false, false, false, true });
+    g.setColour (getTheme().foreground.withAlpha (0.9f));
+    x += 38 + cellGap;
 
-        // PITCH — may be read-only in Repitch+Stretch mode
-        {
-            bool stretchOn = processor.apvts.getRawParameterValue (ParamIds::defaultStretchEnabled)->load() > 0.5f;
-            int algo = (int) processor.apvts.getRawParameterValue (ParamIds::defaultAlgorithm)->load();
-            bool pitchReadOnly = (algo == 0 && stretchOn);
-
-            g.setFont (IntersectLookAndFeel::makeFont (12.0f));
-            g.setColour (pitchReadOnly ? getTheme().foreground.withAlpha (0.5f) : getTheme().foreground.withAlpha (0.9f));
-            g.drawText ("PITCH", x, row1y + 2, cellW, 13, juce::Justification::centredLeft);
-            g.setFont (IntersectLookAndFeel::makeFont (14.0f));
-
-            if (pitchReadOnly)
-            {
-                float dawBpm = processor.dawBpm.load();
-                float calcPitch = (dawBpm > 0.0f && bpm > 0.0f)
-                    ? 12.0f * std::log2 (dawBpm / bpm) : 0.0f;
-                int calcPitchI = (int) std::round (calcPitch);
-                juce::String pitchStr = (calcPitchI >= 0 ? "+" : "") + juce::String (calcPitchI) + "st";
-                g.setColour (getTheme().foreground.withAlpha (0.5f));
-                g.drawText (pitchStr, x, row1y + 15, cellW, 14, juce::Justification::centredLeft);
-                headerCells.push_back ({ x, row1y, cellW, row1h, ParamIds::defaultPitch, -24.0f, 24.0f, 0.1f, false, false, true, false });
-            }
-            else
-            {
-                float pitch = processor.apvts.getRawParameterValue (ParamIds::defaultPitch)->load();
-                g.setColour (getTheme().foreground.withAlpha (0.9f));
-                int pitchI = (int) std::round (pitch);
-                g.drawText ((pitchI >= 0 ? "+" : "") + juce::String (pitchI), x, row1y + 15, cellW, 14, juce::Justification::centredLeft);
-                headerCells.push_back ({ x, row1y, cellW, row1h, ParamIds::defaultPitch, -24.0f, 24.0f, 0.1f, false, false, false, false });
-            }
-            x += cellW + cellGap;
-        }
-
-        // TUNE
-        {
-            bool stretchOn = processor.apvts.getRawParameterValue (ParamIds::defaultStretchEnabled)->load() > 0.5f;
-            int algo = (int) processor.apvts.getRawParameterValue (ParamIds::defaultAlgorithm)->load();
-            bool tuneReadOnly = (algo == 0 && stretchOn);
-
-            g.setFont (IntersectLookAndFeel::makeFont (12.0f));
-            g.setColour (tuneReadOnly ? getTheme().foreground.withAlpha (0.5f) : getTheme().foreground.withAlpha (0.9f));
-            g.drawText ("TUNE", x, row1y + 2, cellW, 13, juce::Justification::centredLeft);
-            g.setFont (IntersectLookAndFeel::makeFont (14.0f));
-            if (tuneReadOnly)
-            {
-                float dawBpm = processor.dawBpm.load();
-                float totalSemis = (dawBpm > 0.0f && bpm > 0.0f)
-                    ? 12.0f * std::log2 (dawBpm / bpm) : 0.0f;
-                int semisI = (int) std::round (totalSemis);
-                int centsI = (int) std::round ((totalSemis - (float) semisI) * 100.0f);
-                centsI = juce::jlimit (-100, 100, centsI);
-                g.setColour (getTheme().foreground.withAlpha (0.5f));
-                g.drawText ((centsI >= 0 ? "+" : "") + juce::String (centsI) + "ct",
-                            x, row1y + 15, cellW, 14, juce::Justification::centredLeft);
-                headerCells.push_back ({ x, row1y, cellW, row1h, ParamIds::defaultCentsDetune, -100.0f, 100.0f, 0.1f, false, false, true, false });
-            }
-            else
-            {
-                float cents = processor.apvts.getRawParameterValue (ParamIds::defaultCentsDetune)->load();
-                int centsI = (int) std::round (cents);
-                g.setColour (getTheme().foreground.withAlpha (0.9f));
-                g.drawText ((centsI >= 0 ? "+" : "") + juce::String (centsI) + "ct",
-                            x, row1y + 15, cellW, 14, juce::Justification::centredLeft);
-                headerCells.push_back ({ x, row1y, cellW, row1h, ParamIds::defaultCentsDetune, -100.0f, 100.0f, 0.1f, false, false, false, false });
-            }
-            x += cellW + cellGap;
-        }
-
-        // ALGORITHM
-        g.setFont (IntersectLookAndFeel::makeFont (12.0f));
-        g.setColour (getTheme().foreground.withAlpha (0.9f));
-        g.drawText ("ALGO", x, row1y + 2, cellW, 13, juce::Justification::centredLeft);
-        g.setFont (IntersectLookAndFeel::makeFont (14.0f));
+    // PITCH — may be read-only in Repitch+Stretch mode
+    {
+        bool stretchOn = processor.apvts.getRawParameterValue (ParamIds::defaultStretchEnabled)->load() > 0.5f;
         int algo = (int) processor.apvts.getRawParameterValue (ParamIds::defaultAlgorithm)->load();
-        juce::String algoNames[] = { "Repitch", "Stretch", "Bungee" };
-        g.drawText (algoNames[juce::jlimit (0, 2, algo)], x, row1y + 15, cellW, 14, juce::Justification::centredLeft);
-        headerCells.push_back ({ x, row1y, cellW, row1h, ParamIds::defaultAlgorithm, 0.0f, 2.0f, 1.0f, true, false, false, false });
+        bool pitchReadOnly = (algo == 0 && stretchOn);
+
+        g.setFont (IntersectLookAndFeel::makeFont (12.0f));
+        g.setColour (pitchReadOnly ? getTheme().foreground.withAlpha (0.5f) : getTheme().foreground.withAlpha (0.9f));
+        g.drawText ("PITCH", x, row1y + 2, cellW, 13, juce::Justification::centredLeft);
+        g.setFont (IntersectLookAndFeel::makeFont (14.0f));
+
+        if (pitchReadOnly)
+        {
+            float dawBpm = processor.dawBpm.load();
+            float calcPitch = (dawBpm > 0.0f && bpm > 0.0f)
+                ? 12.0f * std::log2 (dawBpm / bpm) : 0.0f;
+            int calcPitchI = (int) std::round (calcPitch);
+            juce::String pitchStr = (calcPitchI >= 0 ? "+" : "") + juce::String (calcPitchI) + "st";
+            g.setColour (getTheme().foreground.withAlpha (0.5f));
+            g.drawText (pitchStr, x, row1y + 15, cellW, 14, juce::Justification::centredLeft);
+            headerCells.push_back ({ x, row1y, cellW, row1h, ParamIds::defaultPitch, -24.0f, 24.0f, 0.1f, false, false, true, false });
+        }
+        else
+        {
+            float pitch = processor.apvts.getRawParameterValue (ParamIds::defaultPitch)->load();
+            g.setColour (getTheme().foreground.withAlpha (0.9f));
+            int pitchI = (int) std::round (pitch);
+            g.drawText ((pitchI >= 0 ? "+" : "") + juce::String (pitchI), x, row1y + 15, cellW, 14, juce::Justification::centredLeft);
+            headerCells.push_back ({ x, row1y, cellW, row1h, ParamIds::defaultPitch, -24.0f, 24.0f, 0.1f, false, false, false, false });
+        }
+        x += cellW + cellGap;
+    }
+
+    // TUNE
+    {
+        bool stretchOn = processor.apvts.getRawParameterValue (ParamIds::defaultStretchEnabled)->load() > 0.5f;
+        int algo = (int) processor.apvts.getRawParameterValue (ParamIds::defaultAlgorithm)->load();
+        bool tuneReadOnly = (algo == 0 && stretchOn);
+
+        g.setFont (IntersectLookAndFeel::makeFont (12.0f));
+        g.setColour (tuneReadOnly ? getTheme().foreground.withAlpha (0.5f) : getTheme().foreground.withAlpha (0.9f));
+        g.drawText ("TUNE", x, row1y + 2, cellW, 13, juce::Justification::centredLeft);
+        g.setFont (IntersectLookAndFeel::makeFont (14.0f));
+        if (tuneReadOnly)
+        {
+            float dawBpm = processor.dawBpm.load();
+            float totalSemis = (dawBpm > 0.0f && bpm > 0.0f)
+                ? 12.0f * std::log2 (dawBpm / bpm) : 0.0f;
+            int semisI = (int) std::round (totalSemis);
+            int centsI = (int) std::round ((totalSemis - (float) semisI) * 100.0f);
+            centsI = juce::jlimit (-100, 100, centsI);
+            g.setColour (getTheme().foreground.withAlpha (0.5f));
+            g.drawText ((centsI >= 0 ? "+" : "") + juce::String (centsI) + "ct",
+                        x, row1y + 15, cellW, 14, juce::Justification::centredLeft);
+            headerCells.push_back ({ x, row1y, cellW, row1h, ParamIds::defaultCentsDetune, -100.0f, 100.0f, 0.1f, false, false, true, false });
+        }
+        else
+        {
+            float cents = processor.apvts.getRawParameterValue (ParamIds::defaultCentsDetune)->load();
+            int centsI = (int) std::round (cents);
+            g.setColour (getTheme().foreground.withAlpha (0.9f));
+            g.drawText ((centsI >= 0 ? "+" : "") + juce::String (centsI) + "ct",
+                        x, row1y + 15, cellW, 14, juce::Justification::centredLeft);
+            headerCells.push_back ({ x, row1y, cellW, row1h, ParamIds::defaultCentsDetune, -100.0f, 100.0f, 0.1f, false, false, false, false });
+        }
+        x += cellW + cellGap;
+    }
+
+    // ALGORITHM
+    g.setFont (IntersectLookAndFeel::makeFont (12.0f));
+    g.setColour (getTheme().foreground.withAlpha (0.9f));
+    g.drawText ("ALGO", x, row1y + 2, cellW, 13, juce::Justification::centredLeft);
+    g.setFont (IntersectLookAndFeel::makeFont (14.0f));
+    int algo = (int) processor.apvts.getRawParameterValue (ParamIds::defaultAlgorithm)->load();
+    juce::String algoNames[] = { "Repitch", "Stretch", "Bungee" };
+    g.drawText (algoNames[juce::jlimit (0, 2, algo)], x, row1y + 15, cellW, 14, juce::Justification::centredLeft);
+    headerCells.push_back ({ x, row1y, cellW, row1h, ParamIds::defaultAlgorithm, 0.0f, 2.0f, 1.0f, true, false, false, false });
+    x += cellW + cellGap;
+
+    if (algo == 1)
+    {
+        // TONAL — only for Stretch (Signalsmith)
+        g.setFont (IntersectLookAndFeel::makeFont (12.0f));
+        g.setColour (getTheme().foreground.withAlpha (0.9f));
+        g.drawText ("TONAL", x, row1y + 2, cellW, 13, juce::Justification::centredLeft);
+        g.setFont (IntersectLookAndFeel::makeFont (14.0f));
+        float tonal = processor.apvts.getRawParameterValue (ParamIds::defaultTonality)->load();
+        g.drawText (juce::String ((int) tonal) + "Hz", x, row1y + 15, cellW, 14, juce::Justification::centredLeft);
+        headerCells.push_back ({ x, row1y, cellW, row1h, ParamIds::defaultTonality, 0.0f, 8000.0f, 100.0f, false, false, false, false });
         x += cellW + cellGap;
 
-        if (algo == 1)
+        // FMNT
+        g.setFont (IntersectLookAndFeel::makeFont (12.0f));
+        g.setColour (getTheme().foreground.withAlpha (0.9f));
+        g.drawText ("FMNT", x, row1y + 2, cellW, 13, juce::Justification::centredLeft);
+        g.setFont (IntersectLookAndFeel::makeFont (14.0f));
+        float fmnt = processor.apvts.getRawParameterValue (ParamIds::defaultFormant)->load();
+        g.drawText ((fmnt >= 0 ? "+" : "") + juce::String (fmnt, 1), x, row1y + 15, cellW, 14, juce::Justification::centredLeft);
+        headerCells.push_back ({ x, row1y, cellW, row1h, ParamIds::defaultFormant, -24.0f, 24.0f, 0.1f, false, false, false, false });
+        x += cellW + cellGap;
+
+        // FMNT C
+        g.setFont (IntersectLookAndFeel::makeFont (12.0f));
+        g.setColour (getTheme().foreground.withAlpha (0.9f));
+        g.drawText ("FMNT C", x, row1y + 2, cellW, 13, juce::Justification::centredLeft);
+        g.setFont (IntersectLookAndFeel::makeFont (14.0f));
+        bool fmntC = processor.apvts.getRawParameterValue (ParamIds::defaultFormantComp)->load() > 0.5f;
+        g.setColour (fmntC ? getTheme().lockActive : getTheme().foreground.withAlpha (0.5f));
+        g.drawText (fmntC ? "ON" : "OFF", x, row1y + 15, cellW, 14, juce::Justification::centredLeft);
+        headerCells.push_back ({ x, row1y, cellW, row1h, ParamIds::defaultFormantComp, 0.0f, 1.0f, 1.0f, false, true, false, false });
+        x += cellW + cellGap;
+    }
+    else if (algo == 2)
+    {
+        // GRAIN — only for Bungee
+        g.setFont (IntersectLookAndFeel::makeFont (12.0f));
+        g.setColour (getTheme().foreground.withAlpha (0.9f));
+        g.drawText ("GRAIN", x, row1y + 2, cellW, 13, juce::Justification::centredLeft);
+        g.setFont (IntersectLookAndFeel::makeFont (14.0f));
+        int gm = (int) processor.apvts.getRawParameterValue (ParamIds::defaultGrainMode)->load();
+        juce::String gmNames[] = { "Fast", "Normal", "Smooth" };
+        g.drawText (gmNames[juce::jlimit (0, 2, gm)], x, row1y + 15, cellW, 14, juce::Justification::centredLeft);
+        headerCells.push_back ({ x, row1y, cellW, row1h, ParamIds::defaultGrainMode, 0.0f, 2.0f, 1.0f, true, false, false, false });
+        x += cellW + cellGap;
+    }
+
+    // STRETCH
+    {
+        bool strOnR1 = processor.apvts.getRawParameterValue (ParamIds::defaultStretchEnabled)->load() > 0.5f;
+        g.setFont (IntersectLookAndFeel::makeFont (12.0f));
+        g.setColour (getTheme().foreground.withAlpha (0.9f));
+        g.drawText ("STRETCH", x, row1y + 2, cellW, 13, juce::Justification::centredLeft);
+        g.setFont (IntersectLookAndFeel::makeFont (14.0f));
+        g.setColour (strOnR1 ? getTheme().lockActive : getTheme().foreground.withAlpha (0.5f));
+        g.drawText (strOnR1 ? "ON" : "OFF", x, row1y + 15, cellW, 14, juce::Justification::centredLeft);
+        headerCells.push_back ({ x, row1y, cellW, row1h, ParamIds::defaultStretchEnabled, 0.0f, 1.0f, 1.0f, false, true, false, false });
+        x += cellW + cellGap;
+    }
+
+    // 1SHOT
+    {
+        bool osOn = processor.apvts.getRawParameterValue (ParamIds::defaultOneShot)->load() > 0.5f;
+        g.setFont (IntersectLookAndFeel::makeFont (12.0f));
+        g.setColour (getTheme().foreground.withAlpha (0.9f));
+        g.drawText ("1SHOT", x, row1y + 2, cellW, 13, juce::Justification::centredLeft);
+        g.setFont (IntersectLookAndFeel::makeFont (14.0f));
+        g.setColour (osOn ? getTheme().lockActive : getTheme().foreground.withAlpha (0.5f));
+        g.drawText (osOn ? "ON" : "OFF", x, row1y + 15, cellW, 14, juce::Justification::centredLeft);
+        headerCells.push_back ({ x, row1y, cellW, row1h, ParamIds::defaultOneShot, 0.0f, 1.0f, 1.0f, false, true, false, false });
+        x += cellW + cellGap;
+    }
+
+    // Filename and sample info (right-aligned, left of UNDO button)
+    {
+        const auto& ui2 = processor.getUiSliceSnapshot();
+        int rightEdge = undoBtn.getX() - 6;
+
+        if (ui2.sampleMissing)
         {
-            // TONAL — only for Stretch (Signalsmith)
             g.setFont (IntersectLookAndFeel::makeFont (12.0f));
-            g.setColour (getTheme().foreground.withAlpha (0.9f));
-            g.drawText ("TONAL", x, row1y + 2, cellW, 13, juce::Justification::centredLeft);
+            g.setColour (juce::Colours::orange);
+            g.drawText ("MISSING", x, row1y + 2, rightEdge - x, 13, juce::Justification::right);
             g.setFont (IntersectLookAndFeel::makeFont (14.0f));
-            float tonal = processor.apvts.getRawParameterValue (ParamIds::defaultTonality)->load();
-            g.drawText (juce::String ((int) tonal) + "Hz", x, row1y + 15, cellW, 14, juce::Justification::centredLeft);
-            headerCells.push_back ({ x, row1y, cellW, row1h, ParamIds::defaultTonality, 0.0f, 8000.0f, 100.0f, false, false, false, false });
-            x += cellW + cellGap;
-
-            // FMNT
-            g.setFont (IntersectLookAndFeel::makeFont (12.0f));
-            g.setColour (getTheme().foreground.withAlpha (0.9f));
-            g.drawText ("FMNT", x, row1y + 2, cellW, 13, juce::Justification::centredLeft);
-            g.setFont (IntersectLookAndFeel::makeFont (14.0f));
-            float fmnt = processor.apvts.getRawParameterValue (ParamIds::defaultFormant)->load();
-            g.drawText ((fmnt >= 0 ? "+" : "") + juce::String (fmnt, 1), x, row1y + 15, cellW, 14, juce::Justification::centredLeft);
-            headerCells.push_back ({ x, row1y, cellW, row1h, ParamIds::defaultFormant, -24.0f, 24.0f, 0.1f, false, false, false, false });
-            x += cellW + cellGap;
-
-            // FMNT C
-            g.setFont (IntersectLookAndFeel::makeFont (12.0f));
-            g.setColour (getTheme().foreground.withAlpha (0.9f));
-            g.drawText ("FMNT C", x, row1y + 2, cellW, 13, juce::Justification::centredLeft);
-            g.setFont (IntersectLookAndFeel::makeFont (14.0f));
-            bool fmntC = processor.apvts.getRawParameterValue (ParamIds::defaultFormantComp)->load() > 0.5f;
-            g.setColour (fmntC ? getTheme().lockActive : getTheme().foreground.withAlpha (0.5f));
-            g.drawText (fmntC ? "ON" : "OFF", x, row1y + 15, cellW, 14, juce::Justification::centredLeft);
-            headerCells.push_back ({ x, row1y, cellW, row1h, ParamIds::defaultFormantComp, 0.0f, 1.0f, 1.0f, false, true, false, false });
-            x += cellW + cellGap;
-        }
-        else if (algo == 2)
-        {
-            // GRAIN — only for Bungee
-            g.setFont (IntersectLookAndFeel::makeFont (12.0f));
-            g.setColour (getTheme().foreground.withAlpha (0.9f));
-            g.drawText ("GRAIN", x, row1y + 2, cellW, 13, juce::Justification::centredLeft);
-            g.setFont (IntersectLookAndFeel::makeFont (14.0f));
-            int gm = (int) processor.apvts.getRawParameterValue (ParamIds::defaultGrainMode)->load();
-            juce::String gmNames[] = { "Fast", "Normal", "Smooth" };
-            g.drawText (gmNames[juce::jlimit (0, 2, gm)], x, row1y + 15, cellW, 14, juce::Justification::centredLeft);
-            headerCells.push_back ({ x, row1y, cellW, row1h, ParamIds::defaultGrainMode, 0.0f, 2.0f, 1.0f, true, false, false, false });
-            x += cellW + cellGap;
-        }
-
-        // STRETCH (moved from row 2)
-        {
-            bool strOnR1 = processor.apvts.getRawParameterValue (ParamIds::defaultStretchEnabled)->load() > 0.5f;
-            g.setFont (IntersectLookAndFeel::makeFont (12.0f));
-            g.setColour (getTheme().foreground.withAlpha (0.9f));
-            g.drawText ("STRETCH", x, row1y + 2, cellW, 13, juce::Justification::centredLeft);
-            g.setFont (IntersectLookAndFeel::makeFont (14.0f));
-            g.setColour (strOnR1 ? getTheme().lockActive : getTheme().foreground.withAlpha (0.5f));
-            g.drawText (strOnR1 ? "ON" : "OFF", x, row1y + 15, cellW, 14, juce::Justification::centredLeft);
-            headerCells.push_back ({ x, row1y, cellW, row1h, ParamIds::defaultStretchEnabled, 0.0f, 1.0f, 1.0f, false, true, false, false });
-            x += cellW + cellGap;
-        }
-
-        // 1SHOT (sample-level one-shot)
-        {
-            bool osOn = processor.apvts.getRawParameterValue (ParamIds::defaultOneShot)->load() > 0.5f;
-            g.setFont (IntersectLookAndFeel::makeFont (12.0f));
-            g.setColour (getTheme().foreground.withAlpha (0.9f));
-            g.drawText ("1SHOT", x, row1y + 2, cellW, 13, juce::Justification::centredLeft);
-            g.setFont (IntersectLookAndFeel::makeFont (14.0f));
-            g.setColour (osOn ? getTheme().lockActive : getTheme().foreground.withAlpha (0.5f));
-            g.drawText (osOn ? "ON" : "OFF", x, row1y + 15, cellW, 14, juce::Justification::centredLeft);
-            headerCells.push_back ({ x, row1y, cellW, row1h, ParamIds::defaultOneShot, 0.0f, 1.0f, 1.0f, false, true, false, false });
-            x += cellW + cellGap;
-        }
-
-        // Filename and sample info (right-aligned, left of UNDO button)
-        {
-            int rightEdge = undoBtn.getX() - 6;
-            bool isMissing = ui.sampleMissing;
-
-            g.setFont (IntersectLookAndFeel::makeFont (12.0f));
-            if (isMissing)
-                g.setColour (juce::Colours::orange);
-            else
-                g.setColour (getTheme().foreground.withAlpha (0.35f));
-            g.drawText (isMissing ? "MISSING" : "SAMPLE", x, row1y + 2, rightEdge - x, 13, juce::Justification::right);
-
-            g.setFont (IntersectLookAndFeel::makeFont (14.0f));
-            if (isMissing)
-                g.setColour (juce::Colours::orange.withAlpha (0.9f));
-            else
-                g.setColour (getTheme().foreground.withAlpha (0.7f));
-
-            juce::String fname = ui.sampleFileName;
-            if (isMissing)
-            {
-                g.drawText (fname + " (click to relink)", x, row1y + 15, rightEdge - x, 14, juce::Justification::right);
-            }
-            else
-            {
-                double srate = processor.getSampleRate();
-                if (srate <= 0) srate = 44100.0;
-                double lenSec = ui.sampleNumFrames / srate;
-                g.drawText (fname + " (" + juce::String (lenSec, 2) + "s)",
-                            x, row1y + 15, rightEdge - x, 14, juce::Justification::right);
-            }
-
+            g.setColour (juce::Colours::orange.withAlpha (0.9f));
+            g.drawText (ui2.sampleFileName + " (click to relink)", x, row1y + 15, rightEdge - x, 14, juce::Justification::right);
             sampleInfoBounds = { x, row1y, rightEdge - x, row1h };
         }
-
-        // --- Separator line between rows ---
-        g.setColour (getTheme().separator);
-        g.drawHorizontalLine (32, 8.0f, (float) getWidth() - 8.0f);
-
-        // --- Row 2: ATK / DEC / SUS / REL / PP / MUTE / STRETCH / VOL ---
-        int row2y = 34;
-        int row2h = 30;
-        x = 8;
-
-        // ATK
-        g.setFont (IntersectLookAndFeel::makeFont (12.0f));
-        g.setColour (getTheme().foreground.withAlpha (0.9f));
-        g.drawText ("ATK", x, row2y + 2, cellW, 13, juce::Justification::centredLeft);
-        g.setFont (IntersectLookAndFeel::makeFont (14.0f));
-        float atk = processor.apvts.getRawParameterValue (ParamIds::defaultAttack)->load();
-        g.drawText (juce::String ((int) atk) + "ms", x, row2y + 15, cellW, 14, juce::Justification::centredLeft);
-        headerCells.push_back ({ x, row2y, cellW, row2h, ParamIds::defaultAttack, 0.0f, 1000.0f, 1.0f, false, false, false, false });
-        x += cellW + cellGap;
-
-        // DEC
-        g.setFont (IntersectLookAndFeel::makeFont (12.0f));
-        g.setColour (getTheme().foreground.withAlpha (0.9f));
-        g.drawText ("DEC", x, row2y + 2, cellW, 13, juce::Justification::centredLeft);
-        g.setFont (IntersectLookAndFeel::makeFont (14.0f));
-        float dec = processor.apvts.getRawParameterValue (ParamIds::defaultDecay)->load();
-        g.drawText (juce::String ((int) dec) + "ms", x, row2y + 15, cellW, 14, juce::Justification::centredLeft);
-        headerCells.push_back ({ x, row2y, cellW, row2h, ParamIds::defaultDecay, 0.0f, 5000.0f, 1.0f, false, false, false, false });
-        x += cellW + cellGap;
-
-        // SUS
-        g.setFont (IntersectLookAndFeel::makeFont (12.0f));
-        g.setColour (getTheme().foreground.withAlpha (0.9f));
-        g.drawText ("SUS", x, row2y + 2, cellW, 13, juce::Justification::centredLeft);
-        g.setFont (IntersectLookAndFeel::makeFont (14.0f));
-        float sus = processor.apvts.getRawParameterValue (ParamIds::defaultSustain)->load();
-        g.drawText (juce::String ((int) sus) + "%", x, row2y + 15, cellW, 14, juce::Justification::centredLeft);
-        headerCells.push_back ({ x, row2y, cellW, row2h, ParamIds::defaultSustain, 0.0f, 100.0f, 1.0f, false, false, false, false });
-        x += cellW + cellGap;
-
-        // REL
-        g.setFont (IntersectLookAndFeel::makeFont (12.0f));
-        g.setColour (getTheme().foreground.withAlpha (0.9f));
-        g.drawText ("REL", x, row2y + 2, cellW, 13, juce::Justification::centredLeft);
-        g.setFont (IntersectLookAndFeel::makeFont (14.0f));
-        float rel = processor.apvts.getRawParameterValue (ParamIds::defaultRelease)->load();
-        g.drawText (juce::String ((int) rel) + "ms", x, row2y + 15, cellW, 14, juce::Justification::centredLeft);
-        headerCells.push_back ({ x, row2y, cellW, row2h, ParamIds::defaultRelease, 0.0f, 5000.0f, 1.0f, false, false, false, false });
-        x += cellW + cellGap;
-
-        // TAIL (release tail toggle)
-        g.setFont (IntersectLookAndFeel::makeFont (12.0f));
-        g.setColour (getTheme().foreground.withAlpha (0.9f));
-        g.drawText ("TAIL", x, row2y + 2, cellW, 13, juce::Justification::centredLeft);
-        g.setFont (IntersectLookAndFeel::makeFont (14.0f));
-        bool tail = processor.apvts.getRawParameterValue (ParamIds::defaultReleaseTail)->load() > 0.5f;
-        g.setColour (tail ? getTheme().lockActive : getTheme().foreground.withAlpha (0.5f));
-        g.drawText (tail ? "ON" : "OFF", x, row2y + 15, cellW, 14, juce::Justification::centredLeft);
-        headerCells.push_back ({ x, row2y, cellW, row2h, ParamIds::defaultReleaseTail, 0.0f, 1.0f, 1.0f, false, true, false, false });
-        x += cellW + cellGap;
-
-        // REV (reverse toggle)
-        g.setFont (IntersectLookAndFeel::makeFont (12.0f));
-        g.setColour (getTheme().foreground.withAlpha (0.9f));
-        g.drawText ("REV", x, row2y + 2, cellW, 13, juce::Justification::centredLeft);
-        g.setFont (IntersectLookAndFeel::makeFont (14.0f));
-        bool rev = processor.apvts.getRawParameterValue (ParamIds::defaultReverse)->load() > 0.5f;
-        g.setColour (rev ? getTheme().lockActive : getTheme().foreground.withAlpha (0.5f));
-        g.drawText (rev ? "ON" : "OFF", x, row2y + 15, cellW, 14, juce::Justification::centredLeft);
-        headerCells.push_back ({ x, row2y, cellW, row2h, ParamIds::defaultReverse, 0.0f, 1.0f, 1.0f, false, true, false, false });
-        x += cellW + cellGap;
-
-        // LOOP (choice: Off/Loop/PP)
-        g.setFont (IntersectLookAndFeel::makeFont (12.0f));
-        g.setColour (getTheme().foreground.withAlpha (0.9f));
-        g.drawText ("LOOP", x, row2y + 2, cellW, 13, juce::Justification::centredLeft);
-        g.setFont (IntersectLookAndFeel::makeFont (14.0f));
-        int loopMode = (int) processor.apvts.getRawParameterValue (ParamIds::defaultLoop)->load();
-        juce::String loopNames[] = { "OFF", "LOOP", "PP" };
-        g.setColour (loopMode > 0 ? getTheme().lockActive : getTheme().foreground.withAlpha (0.5f));
-        g.drawText (loopNames[juce::jlimit (0, 2, loopMode)], x, row2y + 15, cellW, 14, juce::Justification::centredLeft);
-        headerCells.push_back ({ x, row2y, cellW, row2h, ParamIds::defaultLoop, 0.0f, 2.0f, 1.0f, true, false, false, false });
-        x += cellW + cellGap;
-
-        // MUTE GROUP
-        g.setFont (IntersectLookAndFeel::makeFont (12.0f));
-        g.setColour (getTheme().foreground.withAlpha (0.9f));
-        g.drawText ("MUTE", x, row2y + 2, cellW, 13, juce::Justification::centredLeft);
-        g.setFont (IntersectLookAndFeel::makeFont (14.0f));
-        float muteGrp = processor.apvts.getRawParameterValue (ParamIds::defaultMuteGroup)->load();
-        g.drawText (juce::String ((int) muteGrp), x, row2y + 15, cellW, 14, juce::Justification::centredLeft);
-        headerCells.push_back ({ x, row2y, cellW, row2h, ParamIds::defaultMuteGroup, 0.0f, 32.0f, 1.0f, false, false, false, false });
-        x += cellW + cellGap;
-
-        // GAIN (dB)
-        g.setFont (IntersectLookAndFeel::makeFont (12.0f));
-        g.setColour (getTheme().foreground.withAlpha (0.9f));
-        g.drawText ("GAIN", x, row2y + 2, cellW, 13, juce::Justification::centredLeft);
-        g.setFont (IntersectLookAndFeel::makeFont (14.0f));
-        float gainDb = processor.apvts.getRawParameterValue (ParamIds::masterVolume)->load();
+        else if (ui2.sampleLoaded)
         {
-            juce::String gainStr = (gainDb >= 0.0f ? "+" : "") + juce::String (gainDb, 1) + "dB";
-            g.drawText (gainStr, x, row2y + 15, cellW, 14, juce::Justification::centredLeft);
-        }
-        headerCells.push_back ({ x, row2y, cellW, row2h, ParamIds::masterVolume, -100.0f, 24.0f, 0.1f, false, false, false, false });
-        x += cellW + cellGap;
-
-        // VOICES (right-aligned, like SLICES/ROOT)
-        {
-            int voicesW = 55;
-            int voicesX = getWidth() - 8 - voicesW;
+            double srate = processor.getSampleRate();
+            if (srate <= 0) srate = 44100.0;
+            double lenSec = ui2.sampleNumFrames / srate;
             g.setFont (IntersectLookAndFeel::makeFont (12.0f));
-            g.setColour (getTheme().foreground.withAlpha (0.9f));
-            g.drawText ("VOICES", voicesX, row2y + 2, voicesW, 13, juce::Justification::right);
+            g.setColour (getTheme().foreground.withAlpha (0.35f));
+            g.drawText ("SAMPLE", x, row1y + 2, rightEdge - x, 13, juce::Justification::right);
             g.setFont (IntersectLookAndFeel::makeFont (14.0f));
-            int maxV = (int) processor.apvts.getRawParameterValue (ParamIds::maxVoices)->load();
-            g.setColour (getTheme().foreground.withAlpha (0.9f));
-            g.drawText (juce::String (maxV), voicesX, row2y + 15, voicesW, 14, juce::Justification::right);
-            headerCells.push_back ({ voicesX, row2y, voicesW, row2h, ParamIds::maxVoices, 1.0f, 31.0f, 1.0f, false, false, false, false });
+            g.setColour (getTheme().foreground.withAlpha (0.7f));
+            g.drawText (ui2.sampleFileName + " (" + juce::String (lenSec, 2) + "s)",
+                        x, row1y + 15, rightEdge - x, 14, juce::Justification::right);
+            sampleInfoBounds = { x, row1y, rightEdge - x, row1h };
+        }
+        else
+        {
+            // No sample loaded — waveform area shows the drop hint
+            sampleInfoBounds = {};
         }
     }
-    else if (ui.sampleMissing)
+
+    // Separator line between rows
+    g.setColour (getTheme().separator);
+    g.drawHorizontalLine (32, 8.0f, (float) getWidth() - 8.0f);
+}
+
+void HeaderBar::paintRow2 (juce::Graphics& g)
+{
+    const int row2y  = 34;
+    const int row2h  = 30;
+    const int cellW  = 60;
+    const int cellGap = 4;
+    int x = 8;
+
+    // ATK
+    g.setFont (IntersectLookAndFeel::makeFont (12.0f));
+    g.setColour (getTheme().foreground.withAlpha (0.9f));
+    g.drawText ("ATK", x, row2y + 2, cellW, 13, juce::Justification::centredLeft);
+    g.setFont (IntersectLookAndFeel::makeFont (14.0f));
+    float atk = processor.apvts.getRawParameterValue (ParamIds::defaultAttack)->load();
+    g.drawText (juce::String ((int) atk) + "ms", x, row2y + 15, cellW, 14, juce::Justification::centredLeft);
+    headerCells.push_back ({ x, row2y, cellW, row2h, ParamIds::defaultAttack, 0.0f, 1000.0f, 1.0f, false, false, false, false });
+    x += cellW + cellGap;
+
+    // DEC
+    g.setFont (IntersectLookAndFeel::makeFont (12.0f));
+    g.setColour (getTheme().foreground.withAlpha (0.9f));
+    g.drawText ("DEC", x, row2y + 2, cellW, 13, juce::Justification::centredLeft);
+    g.setFont (IntersectLookAndFeel::makeFont (14.0f));
+    float dec = processor.apvts.getRawParameterValue (ParamIds::defaultDecay)->load();
+    g.drawText (juce::String ((int) dec) + "ms", x, row2y + 15, cellW, 14, juce::Justification::centredLeft);
+    headerCells.push_back ({ x, row2y, cellW, row2h, ParamIds::defaultDecay, 0.0f, 5000.0f, 1.0f, false, false, false, false });
+    x += cellW + cellGap;
+
+    // SUS
+    g.setFont (IntersectLookAndFeel::makeFont (12.0f));
+    g.setColour (getTheme().foreground.withAlpha (0.9f));
+    g.drawText ("SUS", x, row2y + 2, cellW, 13, juce::Justification::centredLeft);
+    g.setFont (IntersectLookAndFeel::makeFont (14.0f));
+    float sus = processor.apvts.getRawParameterValue (ParamIds::defaultSustain)->load();
+    g.drawText (juce::String ((int) sus) + "%", x, row2y + 15, cellW, 14, juce::Justification::centredLeft);
+    headerCells.push_back ({ x, row2y, cellW, row2h, ParamIds::defaultSustain, 0.0f, 100.0f, 1.0f, false, false, false, false });
+    x += cellW + cellGap;
+
+    // REL
+    g.setFont (IntersectLookAndFeel::makeFont (12.0f));
+    g.setColour (getTheme().foreground.withAlpha (0.9f));
+    g.drawText ("REL", x, row2y + 2, cellW, 13, juce::Justification::centredLeft);
+    g.setFont (IntersectLookAndFeel::makeFont (14.0f));
+    float rel = processor.apvts.getRawParameterValue (ParamIds::defaultRelease)->load();
+    g.drawText (juce::String ((int) rel) + "ms", x, row2y + 15, cellW, 14, juce::Justification::centredLeft);
+    headerCells.push_back ({ x, row2y, cellW, row2h, ParamIds::defaultRelease, 0.0f, 5000.0f, 1.0f, false, false, false, false });
+    x += cellW + cellGap;
+
+    // TAIL (release tail toggle)
+    g.setFont (IntersectLookAndFeel::makeFont (12.0f));
+    g.setColour (getTheme().foreground.withAlpha (0.9f));
+    g.drawText ("TAIL", x, row2y + 2, cellW, 13, juce::Justification::centredLeft);
+    g.setFont (IntersectLookAndFeel::makeFont (14.0f));
+    bool tail = processor.apvts.getRawParameterValue (ParamIds::defaultReleaseTail)->load() > 0.5f;
+    g.setColour (tail ? getTheme().lockActive : getTheme().foreground.withAlpha (0.5f));
+    g.drawText (tail ? "ON" : "OFF", x, row2y + 15, cellW, 14, juce::Justification::centredLeft);
+    headerCells.push_back ({ x, row2y, cellW, row2h, ParamIds::defaultReleaseTail, 0.0f, 1.0f, 1.0f, false, true, false, false });
+    x += cellW + cellGap;
+
+    // REV (reverse toggle)
+    g.setFont (IntersectLookAndFeel::makeFont (12.0f));
+    g.setColour (getTheme().foreground.withAlpha (0.9f));
+    g.drawText ("REV", x, row2y + 2, cellW, 13, juce::Justification::centredLeft);
+    g.setFont (IntersectLookAndFeel::makeFont (14.0f));
+    bool rev = processor.apvts.getRawParameterValue (ParamIds::defaultReverse)->load() > 0.5f;
+    g.setColour (rev ? getTheme().lockActive : getTheme().foreground.withAlpha (0.5f));
+    g.drawText (rev ? "ON" : "OFF", x, row2y + 15, cellW, 14, juce::Justification::centredLeft);
+    headerCells.push_back ({ x, row2y, cellW, row2h, ParamIds::defaultReverse, 0.0f, 1.0f, 1.0f, false, true, false, false });
+    x += cellW + cellGap;
+
+    // LOOP (choice: Off/Loop/PP)
+    g.setFont (IntersectLookAndFeel::makeFont (12.0f));
+    g.setColour (getTheme().foreground.withAlpha (0.9f));
+    g.drawText ("LOOP", x, row2y + 2, cellW, 13, juce::Justification::centredLeft);
+    g.setFont (IntersectLookAndFeel::makeFont (14.0f));
+    int loopMode = (int) processor.apvts.getRawParameterValue (ParamIds::defaultLoop)->load();
+    juce::String loopNames[] = { "OFF", "LOOP", "PP" };
+    g.setColour (loopMode > 0 ? getTheme().lockActive : getTheme().foreground.withAlpha (0.5f));
+    g.drawText (loopNames[juce::jlimit (0, 2, loopMode)], x, row2y + 15, cellW, 14, juce::Justification::centredLeft);
+    headerCells.push_back ({ x, row2y, cellW, row2h, ParamIds::defaultLoop, 0.0f, 2.0f, 1.0f, true, false, false, false });
+    x += cellW + cellGap;
+
+    // MUTE GROUP
+    g.setFont (IntersectLookAndFeel::makeFont (12.0f));
+    g.setColour (getTheme().foreground.withAlpha (0.9f));
+    g.drawText ("MUTE", x, row2y + 2, cellW, 13, juce::Justification::centredLeft);
+    g.setFont (IntersectLookAndFeel::makeFont (14.0f));
+    float muteGrp = processor.apvts.getRawParameterValue (ParamIds::defaultMuteGroup)->load();
+    g.drawText (juce::String ((int) muteGrp), x, row2y + 15, cellW, 14, juce::Justification::centredLeft);
+    headerCells.push_back ({ x, row2y, cellW, row2h, ParamIds::defaultMuteGroup, 0.0f, 32.0f, 1.0f, false, false, false, false });
+    x += cellW + cellGap;
+
+    // GAIN (dB)
+    g.setFont (IntersectLookAndFeel::makeFont (12.0f));
+    g.setColour (getTheme().foreground.withAlpha (0.9f));
+    g.drawText ("GAIN", x, row2y + 2, cellW, 13, juce::Justification::centredLeft);
+    g.setFont (IntersectLookAndFeel::makeFont (14.0f));
+    float gainDb = processor.apvts.getRawParameterValue (ParamIds::masterVolume)->load();
     {
-        // Sample is missing — show MISSING indicator with filename
-        g.setColour (juce::Colours::white.withAlpha (0.8f));
-        g.setFont (IntersectLookAndFeel::makeFont (18.0f, true));
-        g.drawText ("INTERSECT", 8, 8, 160, 20, juce::Justification::centredLeft);
-
-        int rightEdge = undoBtn.getX() - 6;
-        g.setFont (IntersectLookAndFeel::makeFont (12.0f));
-        g.setColour (juce::Colours::orange);
-        g.drawText ("MISSING", 180, 2, rightEdge - 180, 13, juce::Justification::right);
-
-        g.setFont (IntersectLookAndFeel::makeFont (14.0f));
-        g.setColour (juce::Colours::orange.withAlpha (0.9f));
-        juce::String fname = ui.sampleFileName;
-        g.drawText (fname + " (click to relink)", 180, 16, rightEdge - 180, 14, juce::Justification::right);
-
-        sampleInfoBounds = { 180, 2, rightEdge - 180, 28 };
+        juce::String gainStr = (gainDb >= 0.0f ? "+" : "") + juce::String (gainDb, 1) + "dB";
+        g.drawText (gainStr, x, row2y + 15, cellW, 14, juce::Justification::centredLeft);
     }
-    else
+    headerCells.push_back ({ x, row2y, cellW, row2h, ParamIds::masterVolume, -100.0f, 24.0f, 0.1f, false, false, false, false });
+    x += cellW + cellGap;
+
+    // VOICES (right-aligned)
     {
-        sampleInfoBounds = {};
-
-        g.setColour (juce::Colours::white.withAlpha (0.8f));
-        g.setFont (IntersectLookAndFeel::makeFont (18.0f, true));
-        g.drawText ("INTERSECT", 8, 20, 160, 20, juce::Justification::centredLeft);
-
+        int voicesW = 55;
+        int voicesX = getWidth() - 8 - voicesW;
+        g.setFont (IntersectLookAndFeel::makeFont (12.0f));
+        g.setColour (getTheme().foreground.withAlpha (0.9f));
+        g.drawText ("VOICES", voicesX, row2y + 2, voicesW, 13, juce::Justification::right);
         g.setFont (IntersectLookAndFeel::makeFont (14.0f));
-        g.setColour (getTheme().foreground.withAlpha (0.6f));
-        g.drawText ("DROP AUDIO FILE", 180, 22, 300, 16,
-                     juce::Justification::centredLeft);
+        int maxV = (int) processor.apvts.getRawParameterValue (ParamIds::maxVoices)->load();
+        g.setColour (getTheme().foreground.withAlpha (0.9f));
+        g.drawText (juce::String (maxV), voicesX, row2y + 15, voicesW, 14, juce::Justification::right);
+        headerCells.push_back ({ voicesX, row2y, voicesW, row2h, ParamIds::maxVoices, 1.0f, 31.0f, 1.0f, false, false, false, false });
     }
 }
 
@@ -577,14 +550,8 @@ void HeaderBar::mouseDrag (const juce::MouseEvent& e)
     }
     else
     {
-        float range = cell.maxVal - cell.minVal;
-        float sensitivity = range / 200.0f;
-        newVal = dragStartValue + deltaY * sensitivity;
-        float snap = e.mods.isShiftDown() ? 5.0f : (cell.step >= 1.0f ? 1.0f : 0.0f);
-        if (snap > 0.0f)
-            newVal = std::round (newVal / snap) * snap;
+        newVal = UIHelpers::computeDragValue (dragStartValue, deltaY, cell.minVal, cell.maxVal, e.mods.isShiftDown());
     }
-    newVal = juce::jlimit (cell.minVal, cell.maxVal, newVal);
 
     if (auto* p = processor.apvts.getParameter (cell.paramId))
         p->setValueNotifyingHost (p->convertTo0to1 (newVal));

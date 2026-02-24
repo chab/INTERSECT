@@ -25,10 +25,7 @@ ActionPanel::ActionPanel (IntersectProcessor& p, WaveformView& wv)
     }
 
     addSliceBtn.onClick = [this] {
-        waveformView.sliceDrawMode = ! waveformView.sliceDrawMode;
-        waveformView.setMouseCursor (waveformView.sliceDrawMode
-            ? juce::MouseCursor::IBeamCursor
-            : juce::MouseCursor::NormalCursor);
+        waveformView.setSliceDrawMode (! waveformView.isSliceDrawModeActive());
         repaint();
     };
 
@@ -152,7 +149,7 @@ void ActionPanel::paint (juce::Graphics& g)
     updateSnapButtonAppearance (processor.snapToZeroCrossing.load());
 
     // Highlight +SLC if in draw mode
-    if (waveformView.sliceDrawMode)
+    if (waveformView.isSliceDrawModeActive())
     {
         g.setColour (getTheme().accent.withAlpha (0.25f));
         g.fillRect (addSliceBtn.getBounds());

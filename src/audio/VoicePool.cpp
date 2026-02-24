@@ -9,8 +9,8 @@
 #include <algorithm>
 #include <cmath>
 
-static constexpr int kStretchBlockSize = 128;
-static constexpr int kMaxStretchInputSamples = 8192;
+static constexpr int kStretchBlockSize = 128;        // required block size for Signalsmith Stretch processing
+static constexpr int kMaxStretchInputSamples = 8192; // max pre-roll/input feed size (empirically tuned)
 static constexpr int kMaxBungeeInputFrames = 8192;
 static constexpr int kMaxBungeeOutputFrames = 8192;
 

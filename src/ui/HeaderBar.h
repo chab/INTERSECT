@@ -27,6 +27,8 @@ private:
 
     std::vector<HeaderCell> headerCells;
 
+    void paintRow1 (juce::Graphics& g);
+    void paintRow2 (juce::Graphics& g);
     void showTextEditor (const HeaderCell& cell);
     void showSetBpmPopup (bool forSampleDefault);
     void showThemePopup();

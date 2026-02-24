@@ -1,4 +1,5 @@
 #include "SliceControlBar.h"
+#include "UIHelpers.h"
 #include "IntersectLookAndFeel.h"
 #include "../PluginProcessor.h"
 #include "../audio/GrainEngine.h"
@@ -639,17 +640,7 @@ void SliceControlBar::mouseDrag (const juce::MouseEvent& e)
     }
     else
     {
-        float range = cell.maxVal - cell.minVal;
-        float sensitivity = range / 200.0f;
-        newVal = dragStartValue + deltaY * sensitivity;
-
-        // Drag snapping: normal = whole units, Shift = coarse 5-unit steps
-        if (! cell.isBoolean && ! cell.isChoice && ! cell.isSetBpm)
-        {
-            float snap = e.mods.isShiftDown() ? 5.0f : 1.0f;
-            newVal = std::round (newVal / snap) * snap;
-        }
-        newVal = juce::jlimit (cell.minVal, cell.maxVal, newVal);
+        newVal = UIHelpers::computeDragValue (dragStartValue, deltaY, cell.minVal, cell.maxVal, e.mods.isShiftDown());
     }
 
     IntersectProcessor::Command cmd;

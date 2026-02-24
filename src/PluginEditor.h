@@ -30,7 +30,8 @@ private:
     void loadUserSettings();
 
     IntersectProcessor& processor;
-    float lastScale = -1.0f;  // sentinel so first timer tick always applies
+    float lastScale = 1.0f;   // last applied scale value, compared each tick
+    bool scaleDirty = true;   // forces scale application on first timer tick
     float lastZoom = -1.0f;
     float lastScroll = -1.0f;
     int timerHz = 30;

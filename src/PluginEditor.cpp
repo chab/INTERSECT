@@ -150,10 +150,7 @@ bool IntersectEditor::keyPressed (const juce::KeyPress& key)
     // A — Add Slice mode
     if (code == 'A')
     {
-        waveformView.sliceDrawMode = ! waveformView.sliceDrawMode;
-        waveformView.setMouseCursor (waveformView.sliceDrawMode
-            ? juce::MouseCursor::IBeamCursor
-            : juce::MouseCursor::NormalCursor);
+        waveformView.setSliceDrawMode (! waveformView.isSliceDrawModeActive());
         repaint();
         return true;
     }
@@ -275,10 +272,11 @@ void IntersectEditor::timerCallback()
         viewportChanged = true;
     }
 
-    // Check if scale changed (lastScale starts at -1 so first tick always applies)
+    // Check if scale changed; scaleDirty forces application on first timer tick
     float scale = processor.apvts.getRawParameterValue (ParamIds::uiScale)->load();
-    if (scale != lastScale)
+    if (scaleDirty || scale != lastScale)
     {
+        scaleDirty = false;
         lastScale = scale;
         setTransform (juce::AffineTransform::scale (scale));
         IntersectLookAndFeel::setMenuScale (scale);

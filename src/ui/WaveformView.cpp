@@ -1,9 +1,16 @@
 #include "WaveformView.h"
+#include "UIHelpers.h"
 #include "IntersectLookAndFeel.h"
 #include "../PluginProcessor.h"
 #include "../audio/AudioAnalysis.h"
 
 WaveformView::WaveformView (IntersectProcessor& p) : processor (p) {}
+
+void WaveformView::setSliceDrawMode (bool active)
+{
+    sliceDrawMode = active;
+    setMouseCursor (active ? juce::MouseCursor::IBeamCursor : juce::MouseCursor::NormalCursor);
+}
 
 bool WaveformView::hasActiveSlicePreview() const noexcept
 {
@@ -90,24 +97,14 @@ void WaveformView::rebuildCacheIfNeeded()
     const auto view = buildViewState (sampleSnap);
     if (! view.valid)
         return;
-    const void* samplePtr = sampleSnap.get();
 
-    if (view.visibleStart == prevVisibleStart
-        && view.visibleLen == prevVisibleLen
-        && view.width == prevWidth
-        && view.numFrames == prevNumFrames
-        && samplePtr == prevSamplePtr)
-    {
+    const CacheKey key { view.visibleStart, view.visibleLen, view.width, view.numFrames, sampleSnap.get() };
+    if (key == prevCacheKey)
         return;
-    }
 
     cache.rebuild (sampleSnap->buffer, sampleSnap->peakMipmaps,
                    view.numFrames, processor.zoom.load(), processor.scroll.load(), view.width);
-    prevVisibleStart = view.visibleStart;
-    prevVisibleLen = view.visibleLen;
-    prevWidth = view.width;
-    prevNumFrames = view.numFrames;
-    prevSamplePtr = samplePtr;
+    prevCacheKey = key;
 }
 
 void WaveformView::paint (juce::Graphics& g)
@@ -130,85 +127,9 @@ void WaveformView::paint (juce::Graphics& g)
         rebuildCacheIfNeeded();
         drawWaveform (g);
         drawSlices (g);
-
-        // Draw slice preview while dragging in +SLC mode
-        if (dragMode == DrawSlice)
-        {
-            int x1 = sampleToPixel (std::min (drawStart, drawEnd));
-            int x2 = sampleToPixel (std::max (drawStart, drawEnd));
-            if (x2 > x1)
-            {
-                g.setColour (getTheme().accent.withAlpha (0.2f));
-                g.fillRect (x1, 0, x2 - x1, getHeight());
-                g.setColour (getTheme().accent.withAlpha (0.6f));
-                g.drawVerticalLine (x1, 0.0f, (float) getHeight());
-                g.drawVerticalLine (x2, 0.0f, (float) getHeight());
-            }
-        }
-
-        // Draw ghost overlay for Ctrl-drag duplicate
-        if (dragMode == DuplicateSlice)
-        {
-            int gx1 = sampleToPixel (ghostStart);
-            int gx2 = sampleToPixel (ghostEnd);
-            if (gx2 > gx1)
-            {
-                g.setColour (getTheme().accent.withAlpha (0.15f));
-                g.fillRect (gx1, 0, gx2 - gx1, getHeight());
-                juce::Path p;
-                p.addRectangle ((float) gx1, 0.5f, (float)(gx2 - gx1), (float) getHeight() - 1.0f);
-                float dl[] = { 4.0f, 4.0f };
-                juce::PathStrokeType pst (1.0f);
-                juce::Path dashed;
-                pst.createDashedStroke (dashed, p, dl, 2);
-                g.setColour (getTheme().accent.withAlpha (0.75f));
-                g.strokePath (dashed, pst);
-            }
-        }
-
-        // Draw lazy chop preview: highlight between chopPos and playhead
-        if (processor.lazyChop.isActive() && processor.lazyChop.isPlaying()
-            && processor.lazyChop.getChopPos() >= 0)
-        {
-            int previewIdx = LazyChopEngine::getPreviewVoiceIndex();
-            float playhead = processor.voicePool.voicePositions[previewIdx].load (std::memory_order_relaxed);
-            if (playhead > 0.0f)
-            {
-                int chopSample = processor.lazyChop.getChopPos();
-                int headSample = (int) playhead;
-                int x1 = sampleToPixel (std::min (chopSample, headSample));
-                int x2 = sampleToPixel (std::max (chopSample, headSample));
-                if (x2 > x1)
-                {
-                    g.setColour (juce::Colour (0xFFCC4444).withAlpha (0.15f));
-                    g.fillRect (x1, 0, x2 - x1, getHeight());
-                    g.setColour (juce::Colour (0xFFCC4444).withAlpha (0.5f));
-                    g.drawVerticalLine (sampleToPixel (chopSample), 0.0f, (float) getHeight());
-                }
-            }
-        }
-
-        // Draw transient preview lines
-        if (! transientPreviewPositions.empty())
-        {
-            g.setColour (getTheme().accent.withAlpha (0.6f));
-            float dashLengths[] = { 4.0f, 3.0f };
-            for (int pos : transientPreviewPositions)
-            {
-                int px = sampleToPixel (pos);
-                if (px >= 0 && px < getWidth())
-                {
-                    juce::Path dashPath;
-                    dashPath.startNewSubPath ((float) px, 0.0f);
-                    dashPath.lineTo ((float) px, (float) getHeight());
-                    juce::PathStrokeType stroke (1.0f);
-                    juce::Path dashedPath;
-                    stroke.createDashedStroke (dashedPath, dashPath, dashLengths, 2);
-                    g.fillPath (dashedPath);
-                }
-            }
-        }
-
+        paintDrawSlicePreview (g);
+        paintLazyChopOverlay (g);
+        paintTransientMarkers (g);
         drawPlaybackCursors (g);
         paintViewStateActive = false;
     }
@@ -221,10 +142,95 @@ void WaveformView::paint (juce::Graphics& g)
     }
 }
 
+void WaveformView::paintDrawSlicePreview (juce::Graphics& g)
+{
+    // Draw active slice region while dragging in +SLC mode
+    if (dragMode == DrawSlice)
+    {
+        int x1 = sampleToPixel (std::min (drawStart, drawEnd));
+        int x2 = sampleToPixel (std::max (drawStart, drawEnd));
+        if (x2 > x1)
+        {
+            g.setColour (getTheme().accent.withAlpha (0.2f));
+            g.fillRect (x1, 0, x2 - x1, getHeight());
+            g.setColour (getTheme().accent.withAlpha (0.6f));
+            g.drawVerticalLine (x1, 0.0f, (float) getHeight());
+            g.drawVerticalLine (x2, 0.0f, (float) getHeight());
+        }
+    }
+
+    // Draw ghost overlay for Ctrl-drag duplicate
+    if (dragMode == DuplicateSlice)
+    {
+        int gx1 = sampleToPixel (ghostStart);
+        int gx2 = sampleToPixel (ghostEnd);
+        if (gx2 > gx1)
+        {
+            g.setColour (getTheme().accent.withAlpha (0.15f));
+            g.fillRect (gx1, 0, gx2 - gx1, getHeight());
+            juce::Path p;
+            p.addRectangle ((float) gx1, 0.5f, (float)(gx2 - gx1), (float) getHeight() - 1.0f);
+            float dl[] = { 4.0f, 4.0f };
+            juce::PathStrokeType pst (1.0f);
+            juce::Path dashed;
+            pst.createDashedStroke (dashed, p, dl, 2);
+            g.setColour (getTheme().accent.withAlpha (0.75f));
+            g.strokePath (dashed, pst);
+        }
+    }
+}
+
+void WaveformView::paintLazyChopOverlay (juce::Graphics& g)
+{
+    if (! (processor.lazyChop.isActive() && processor.lazyChop.isPlaying()
+           && processor.lazyChop.getChopPos() >= 0))
+        return;
+
+    int previewIdx = LazyChopEngine::getPreviewVoiceIndex();
+    float playhead = processor.voicePool.voicePositions[previewIdx].load (std::memory_order_relaxed);
+    if (playhead <= 0.0f)
+        return;
+
+    int chopSample = processor.lazyChop.getChopPos();
+    int headSample = (int) playhead;
+    int x1 = sampleToPixel (std::min (chopSample, headSample));
+    int x2 = sampleToPixel (std::max (chopSample, headSample));
+    if (x2 > x1)
+    {
+        g.setColour (juce::Colour (0xFFCC4444).withAlpha (0.15f));
+        g.fillRect (x1, 0, x2 - x1, getHeight());
+        g.setColour (juce::Colour (0xFFCC4444).withAlpha (0.5f));
+        g.drawVerticalLine (sampleToPixel (chopSample), 0.0f, (float) getHeight());
+    }
+}
+
+void WaveformView::paintTransientMarkers (juce::Graphics& g)
+{
+    if (transientPreviewPositions.empty())
+        return;
+
+    g.setColour (getTheme().accent.withAlpha (0.6f));
+    float dashLengths[] = { 4.0f, 3.0f };
+    for (int pos : transientPreviewPositions)
+    {
+        int px = sampleToPixel (pos);
+        if (px >= 0 && px < getWidth())
+        {
+            juce::Path dashPath;
+            dashPath.startNewSubPath ((float) px, 0.0f);
+            dashPath.lineTo ((float) px, (float) getHeight());
+            juce::PathStrokeType stroke (1.0f);
+            juce::Path dashedPath;
+            stroke.createDashedStroke (dashedPath, dashPath, dashLengths, 2);
+            g.fillPath (dashedPath);
+        }
+    }
+}
+
 void WaveformView::drawWaveform (juce::Graphics& g)
 {
     int cy = getHeight() / 2;
-    float scale = getHeight() * 0.48f;
+    float scale = getHeight() * UILayout::waveformVerticalScale;
 
     auto& peaks = cache.getPeaks();
     int numPeaks = std::min (cache.getNumPeaks(), getWidth());
@@ -430,7 +436,7 @@ void WaveformView::drawPlaybackCursors (juce::Graphics& g)
 
 void WaveformView::resized()
 {
-    prevWidth = -1;  // force cache rebuild
+    prevCacheKey = {};  // force cache rebuild
 }
 
 void WaveformView::syncAltStateFromMods (const juce::ModifierKeys& mods)
@@ -620,8 +626,7 @@ void WaveformView::mouseDrag (const juce::MouseEvent& e)
         if (w <= 0) return;
 
         float deltaY = (float) (e.y - midDragStartY);
-        float zoomFactor = std::pow (1.01f, deltaY);
-        float newZoom = juce::jlimit (1.0f, 16384.0f, midDragStartZoom * zoomFactor);
+        float newZoom = juce::jlimit (1.0f, 16384.0f, midDragStartZoom * UIHelpers::computeZoomFactor (deltaY));
         processor.zoom.store (newZoom);
 
         float newViewFrac = 1.0f / newZoom;
@@ -632,7 +637,7 @@ void WaveformView::mouseDrag (const juce::MouseEvent& e)
         if (maxScroll > 0.0f)
             processor.scroll.store (juce::jlimit (0.0f, 1.0f, newViewStart / maxScroll));
 
-        prevWidth = -1;
+        prevCacheKey = {};
         return;
     }
 
@@ -788,7 +793,7 @@ void WaveformView::mouseWheelMove (const juce::MouseEvent& e, const juce::MouseW
         float sc = processor.scroll.load();
         sc -= w.deltaX * 0.05f;
         processor.scroll.store (juce::jlimit (0.0f, 1.0f, sc));
-        prevWidth = -1;
+        prevCacheKey = {};
         return;
     }
 
@@ -829,7 +834,7 @@ void WaveformView::mouseWheelMove (const juce::MouseEvent& e, const juce::MouseW
         else
             processor.scroll.store (0.0f);
     }
-    prevWidth = -1;  // force cache rebuild
+    prevCacheKey = {};  // force cache rebuild
 }
 
 bool WaveformView::isInterestedInFileDrag (const juce::StringArray& files)
@@ -850,6 +855,6 @@ void WaveformView::filesDropped (const juce::StringArray& files, int, int)
         processor.loadFileAsync (juce::File (files[0]));
         processor.zoom.store (1.0f);
         processor.scroll.store (0.0f);
-        prevWidth = -1;
+        prevCacheKey = {};
     }
 }

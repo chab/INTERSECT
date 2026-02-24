@@ -26,7 +26,7 @@ struct Voice
     int          startSample  = 0;
     int          endSample    = 0;
     bool         pingPong     = false;
-    int          muteGroup    = 0;
+    int          muteGroup    = 1;  // default matches slice creation default; always overwritten in startVoice()
     bool         looping      = false;
     float        volume       = 1.0f;
     bool         releaseTail  = false;

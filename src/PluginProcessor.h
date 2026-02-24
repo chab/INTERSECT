@@ -27,7 +27,7 @@ public:
     const juce::String getName() const override { return "INTERSECT"; }
     bool acceptsMidi() const override { return true; }
     bool producesMidi() const override { return true; }
-    double getTailLengthSeconds() const override { return 0.0; }
+    double getTailLengthSeconds() const override { return 5.0; }  // max ADSR release is 5000 ms
 
     int getNumPrograms() override { return 1; }
     int getCurrentProgram() override { return 0; }

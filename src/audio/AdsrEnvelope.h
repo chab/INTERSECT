@@ -62,7 +62,7 @@ public:
             case Release:
                 // Multiply by the per-sample decay factor = exp(-5 / (releaseTime * sr))
                 level *= (1.0f - releaseCoeff);
-                if (level < 0.00015f)
+                if (level < 0.00015f)  // ≈ -76 dB, treated as inaudible; avoids infinite exponential decay
                 {
                     level = 0.0f;
                     state = Done;

@@ -1,4 +1,5 @@
 #include "ScrollZoomBar.h"
+#include "UIHelpers.h"
 #include "IntersectLookAndFeel.h"
 #include "../PluginProcessor.h"
 #include <algorithm>
@@ -115,8 +116,7 @@ void ScrollZoomBar::mouseDrag (const juce::MouseEvent& e)
 
     // Vertical drag: zoom
     float deltaY = (float) (e.y - dragStartY);
-    float zoomFactor = std::pow (1.01f, deltaY);
-    float newZoom = juce::jlimit (1.0f, 16384.0f, dragStartZoom * zoomFactor);
+    float newZoom = juce::jlimit (1.0f, 16384.0f, dragStartZoom * UIHelpers::computeZoomFactor (deltaY));
     processor.zoom.store (newZoom);
 
     float newViewFrac = 1.0f / newZoom;
