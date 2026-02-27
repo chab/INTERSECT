@@ -10,6 +10,33 @@ void WaveformView::setSliceDrawMode (bool active)
 {
     sliceDrawMode = active;
     setMouseCursor (active ? juce::MouseCursor::IBeamCursor : juce::MouseCursor::NormalCursor);
+    if (! active && overlayHintSticky)
+        clearOverlayHint();
+}
+
+void WaveformView::showOverlayHint (const juce::String& text, int durationMs, bool stickyUntilAction)
+{
+    overlayHintText = text.trim();
+    overlayHintSticky = stickyUntilAction;
+
+    stopTimer();
+    if (overlayHintText.isNotEmpty() && ! overlayHintSticky)
+        startTimer (juce::jmax (100, durationMs));
+
+    repaint();
+}
+
+void WaveformView::clearOverlayHint()
+{
+    overlayHintText.clear();
+    overlayHintSticky = false;
+    stopTimer();
+    repaint();
+}
+
+void WaveformView::timerCallback()
+{
+    clearOverlayHint();
 }
 
 bool WaveformView::hasActiveSlicePreview() const noexcept
@@ -140,6 +167,8 @@ void WaveformView::paint (juce::Graphics& g)
         g.setFont (IntersectLookAndFeel::makeFont (22.0f));
         g.drawText ("DROP AUDIO FILE", getLocalBounds(), juce::Justification::centred);
     }
+
+    paintOverlayHint (g);
 }
 
 void WaveformView::paintDrawSlicePreview (juce::Graphics& g)
@@ -225,6 +254,30 @@ void WaveformView::paintTransientMarkers (juce::Graphics& g)
             g.fillPath (dashedPath);
         }
     }
+}
+
+void WaveformView::paintOverlayHint (juce::Graphics& g)
+{
+    if (overlayHintText.isEmpty())
+        return;
+
+    g.setFont (IntersectLookAndFeel::makeFont (12.0f));
+    juce::GlyphArrangement ga;
+    ga.addLineOfText (g.getCurrentFont(), overlayHintText, 0.0f, 0.0f);
+    const int textW = juce::roundToInt (ga.getBoundingBox (0, -1, true).getWidth()) + 24;
+    const int maxW = juce::jmax (120, getWidth() - 16);
+    const int bannerW = juce::jlimit (120, maxW, textW);
+    const int bannerH = 24;
+    const int bannerX = juce::jmax (4, (getWidth() - bannerW) / 2);
+    const int bannerY = juce::jmax (4, getHeight() - bannerH - 6);
+    auto banner = juce::Rectangle<float> ((float) bannerX, (float) bannerY, (float) bannerW, (float) bannerH);
+
+    g.setColour (getTheme().darkBar.withAlpha (0.94f));
+    g.fillRoundedRectangle (banner, 4.0f);
+    g.setColour (getTheme().separator.withAlpha (0.85f));
+    g.drawRoundedRectangle (banner.reduced (0.5f), 4.0f, 1.0f);
+    g.setColour (getTheme().foreground.withAlpha (0.9f));
+    g.drawFittedText (overlayHintText, banner.toNearestInt().reduced (8, 2), juce::Justification::centred, 1);
 }
 
 void WaveformView::drawWaveform (juce::Graphics& g)
@@ -542,6 +595,9 @@ void WaveformView::mouseDown (const juce::MouseEvent& e)
 
     if (sliceDrawMode || altModeActive)
     {
+        if (overlayHintSticky)
+            clearOverlayHint();
+
         drawStart = samplePos;
         drawEnd = samplePos;
         drawStartedFromAlt = (! sliceDrawMode && e.mods.isAltDown());
@@ -735,17 +791,11 @@ void WaveformView::mouseUp (const juce::MouseEvent& e)
             cmd.intParam2 = endPos;
             processor.pushCommand (cmd);
             if (! altModeActive)
-            {
-                sliceDrawMode = false;
-                setMouseCursor (juce::MouseCursor::NormalCursor);
-            }
+                setSliceDrawMode (false);
         }
 
         if (drawStartedFromAlt && ! altStillDown)
-        {
-            sliceDrawMode = false;
-            setMouseCursor (juce::MouseCursor::NormalCursor);
-        }
+            setSliceDrawMode (false);
 
         // If click without dragging (< 64 samples), keep draw mode active
     }

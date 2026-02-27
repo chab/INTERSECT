@@ -123,15 +123,17 @@ xattr -cr /Applications/INTERSECT.app
 
 | Button | Function |
 | --- | --- |
-| `ADD` | Toggle draw-slice mode |
+| `ADD` | Toggle draw-slice mode (shows a waveform hint to drag and create a slice) |
 | `LAZY` / `STOP` | Start/stop real-time lazy chopping |
-| `AUTO` | Open Auto Chop panel |
+| `AUTO` | Open Auto Chop panel for the selected slice (prompts you to select a slice first if none is selected) |
 | `COPY` | Duplicate selected slice |
 | `DEL` | Delete selected slice |
 | `ZX` | Snap edits to nearest zero crossing |
 | `FM` | Follow MIDI (auto-select played slice) |
 
 ### Auto Chop Panel
+
+Requires a selected slice before opening.
 
 | Control | Function |
 | --- | --- |
@@ -151,6 +153,7 @@ xattr -cr /Applications/INTERSECT.app
 | Drag inside selected slice | Move slice |
 | `Ctrl` + drag selected slice | Duplicate slice to new position |
 | `Alt` + drag waveform | Temporary draw-slice gesture |
+| Press `ADD` / `Shift + A` | Enters draw mode and shows an on-waveform hint |
 | `Shift` + click waveform | Preview from clicked sample position |
 | Mouse wheel | Cursor-anchored zoom |
 | `Shift` + mouse wheel | Horizontal scroll |
@@ -162,16 +165,18 @@ xattr -cr /Applications/INTERSECT.app
 | --- | --- |
 | `Ctrl/Cmd + Z` | Undo |
 | `Ctrl/Cmd + Shift + Z` | Redo |
-| `A` | Toggle `ADD` mode |
-| `L` | Toggle `LAZY` / `STOP` |
-| `C` | Toggle Auto Chop panel |
-| `D` | Duplicate selected slice |
+| `Shift + A` | Toggle `ADD` mode |
+| `Shift + Z` | Toggle `LAZY` / `STOP` |
+| `Shift + C` | Toggle Auto Chop panel |
+| `Shift + D` | Duplicate selected slice |
 | `Delete` / `Backspace` | Delete selected slice |
-| `Z` | Toggle `ZX` |
-| `F` | Toggle `FM` |
+| `Shift + X` | Toggle `ZX` |
+| `Shift + F` | Toggle `FM` |
 | `Right Arrow` or `Tab` | Select next slice |
 | `Left Arrow` or `Shift + Tab` | Select previous slice |
 | `Esc` | Close Auto Chop panel |
+
+Single-letter action shortcuts are intentionally unbound so DAW keyboard-MIDI note entry remains available.
 
 ## Theme Customization
 

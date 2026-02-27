@@ -5,7 +5,8 @@
 class IntersectProcessor;
 
 class WaveformView : public juce::Component,
-                     public juce::FileDragAndDropTarget
+                     public juce::FileDragAndDropTarget,
+                     private juce::Timer
 {
 public:
     explicit WaveformView (IntersectProcessor& p);
@@ -31,6 +32,8 @@ public:
 
     void setSliceDrawMode (bool active);
     bool isSliceDrawModeActive() const noexcept { return sliceDrawMode; }
+    void showOverlayHint (const juce::String& text, int durationMs, bool stickyUntilAction = false);
+    void clearOverlayHint();
 
     bool altModeActive = false;
     bool shiftPreviewActive = false;
@@ -56,6 +59,7 @@ private:
     int sampleToPixel (int sample) const;
     ViewState buildViewState (const SampleData::SnapshotPtr& sampleSnap) const;
     void syncAltStateFromMods (const juce::ModifierKeys& mods);
+    void timerCallback() override;
 
     void drawWaveform (juce::Graphics& g);
     void drawSlices (juce::Graphics& g);
@@ -63,6 +67,7 @@ private:
     void paintDrawSlicePreview (juce::Graphics& g);
     void paintLazyChopOverlay (juce::Graphics& g);
     void paintTransientMarkers (juce::Graphics& g);
+    void paintOverlayHint (juce::Graphics& g);
 
     // Aggregates all cache-invalidation inputs; rebuild is skipped when unchanged.
     struct CacheKey
@@ -98,4 +103,7 @@ private:
     float midDragAnchorPixelFrac = 0.0f;
     int   midDragStartX = 0;
     int   midDragStartY = 0;
+
+    juce::String overlayHintText;
+    bool overlayHintSticky = false;
 };

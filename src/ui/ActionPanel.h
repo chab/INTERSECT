@@ -12,6 +12,13 @@ public:
     ~ActionPanel() override;
     void resized() override;
     void paint (juce::Graphics& g) override;
+    void triggerAddSliceMode();
+    void triggerLazyChop();
+    void triggerDuplicateSlice();
+    void triggerAutoChop();
+    void triggerDeleteSelectedSlice();
+    void toggleSnapToZeroCrossing();
+    void toggleFollowMidiSelection();
     void toggleAutoChop();
     bool isAutoChopOpen() const { return autoChopPanel != nullptr; }
 

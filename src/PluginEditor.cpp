@@ -111,7 +111,7 @@ bool IntersectEditor::keyPressed (const juce::KeyPress& key)
     auto mods = key.getModifiers();
     int code = key.getKeyCode();
 
-    // Ctrl+Shift+Z — Redo
+    // Ctrl+Shift+Z - Redo
     if (code == 'Z' && mods.isCommandDown() && mods.isShiftDown())
     {
         IntersectProcessor::Command cmd;
@@ -120,7 +120,7 @@ bool IntersectEditor::keyPressed (const juce::KeyPress& key)
         return true;
     }
 
-    // Ctrl+Z — Undo
+    // Ctrl+Z - Undo
     if (code == 'Z' && mods.isCommandDown())
     {
         IntersectProcessor::Command cmd;
@@ -129,87 +129,65 @@ bool IntersectEditor::keyPressed (const juce::KeyPress& key)
         return true;
     }
 
-    // Skip single-key shortcuts if any modifier is held
+    // Ignore other Command/Alt combos and let host/OS handle them.
     if (mods.isCommandDown() || mods.isAltDown())
         return false;
 
-    // Esc — Close Auto Chop panel (only if open)
+    // Esc - Close Auto Chop panel (only if open)
     if (code == juce::KeyPress::escapeKey && actionPanel.isAutoChopOpen())
     {
         actionPanel.toggleAutoChop();
         return true;
     }
 
-    // C — Toggle Auto Chop
-    if (code == 'C')
+    // Shift shortcuts keep plain letter keys available for DAW keyboard MIDI.
+    if (mods.isShiftDown())
     {
-        actionPanel.toggleAutoChop();
-        return true;
+        if (code == 'A')
+        {
+            actionPanel.triggerAddSliceMode();
+            return true;
+        }
+
+        if (code == 'Z')
+        {
+            actionPanel.triggerLazyChop();
+            return true;
+        }
+
+        if (code == 'C')
+        {
+            actionPanel.triggerAutoChop();
+            return true;
+        }
+
+        if (code == 'D')
+        {
+            actionPanel.triggerDuplicateSlice();
+            return true;
+        }
+
+        if (code == 'X')
+        {
+            actionPanel.toggleSnapToZeroCrossing();
+            return true;
+        }
+
+        if (code == 'F')
+        {
+            actionPanel.toggleFollowMidiSelection();
+            return true;
+        }
     }
 
-    // A — Add Slice mode
-    if (code == 'A')
-    {
-        waveformView.setSliceDrawMode (! waveformView.isSliceDrawModeActive());
-        repaint();
-        return true;
-    }
-
-    // L — Lazy Chop
-    if (code == 'L')
-    {
-        IntersectProcessor::Command cmd;
-        cmd.type = processor.lazyChop.isActive()
-            ? IntersectProcessor::CmdLazyChopStop
-            : IntersectProcessor::CmdLazyChopStart;
-        processor.pushCommand (cmd);
-        repaint();
-        return true;
-    }
-
-    // D — Duplicate Slice
-    if (code == 'D')
-    {
-        IntersectProcessor::Command cmd;
-        cmd.type = IntersectProcessor::CmdDuplicateSlice;
-        processor.pushCommand (cmd);
-        return true;
-    }
-
-    // Delete / Backspace — Delete Slice
+    // Delete / Backspace - Delete Slice
     if (code == juce::KeyPress::deleteKey || code == juce::KeyPress::backspaceKey)
     {
-        const auto& ui = processor.getUiSliceSnapshot();
-        int sel = ui.selectedSlice;
-        if (sel >= 0)
-        {
-            IntersectProcessor::Command cmd;
-            cmd.type = IntersectProcessor::CmdDeleteSlice;
-            cmd.intParam1 = sel;
-            processor.pushCommand (cmd);
-        }
+        actionPanel.triggerDeleteSelectedSlice();
         return true;
     }
 
-    // Z — Snap to Zero-Crossing
-    if (code == 'Z')
-    {
-        bool current = processor.snapToZeroCrossing.load();
-        processor.snapToZeroCrossing.store (! current);
-        repaint();
-        return true;
-    }
-
-    // F — Follow MIDI
-    if (code == 'F')
-    {
-        bool current = processor.midiSelectsSlice.load();
-        processor.midiSelectsSlice.store (! current);
-        repaint();
-        return true;
-    }
-
-    // Right arrow / Tab — Next Slice
+    // Right arrow / Tab - Next Slice
     if (code == juce::KeyPress::rightKey
         || (code == juce::KeyPress::tabKey && ! mods.isShiftDown()))
     {
@@ -227,7 +205,7 @@ bool IntersectEditor::keyPressed (const juce::KeyPress& key)
         return true;
     }
 
-    // Left arrow / Shift+Tab — Prev Slice
+    // Left arrow / Shift+Tab - Prev Slice
     if (code == juce::KeyPress::leftKey
         || (code == juce::KeyPress::tabKey && mods.isShiftDown()))
     {

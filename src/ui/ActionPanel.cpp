@@ -3,7 +3,6 @@
 #include "IntersectLookAndFeel.h"
 #include "WaveformView.h"
 #include "../PluginProcessor.h"
-#include "../audio/AudioAnalysis.h"
 
 ActionPanel::ActionPanel (IntersectProcessor& p, WaveformView& wv)
     : processor (p), waveformView (wv)
@@ -24,71 +23,110 @@ ActionPanel::ActionPanel (IntersectProcessor& p, WaveformView& wv)
         btn->setColour (juce::TextButton::textColourOffId, getTheme().foreground);
     }
 
-    addSliceBtn.onClick = [this] {
-        waveformView.setSliceDrawMode (! waveformView.isSliceDrawModeActive());
-        repaint();
-    };
+    addSliceBtn.onClick = [this] { triggerAddSliceMode(); };
+    lazyChopBtn.onClick = [this] { triggerLazyChop(); };
+    dupBtn.onClick = [this] { triggerDuplicateSlice(); };
+    splitBtn.onClick = [this] { triggerAutoChop(); };
 
-    lazyChopBtn.onClick = [this] {
-        IntersectProcessor::Command cmd;
-        if (processor.lazyChop.isActive())
-            cmd.type = IntersectProcessor::CmdLazyChopStop;
-        else
-            cmd.type = IntersectProcessor::CmdLazyChopStart;
-        processor.pushCommand (cmd);
-        repaint();
-    };
-
-    dupBtn.onClick = [this] {
-        IntersectProcessor::Command cmd;
-        cmd.type = IntersectProcessor::CmdDuplicateSlice;
-        cmd.intParam1 = -1;   // -1 = keep source position (existing behavior)
-        processor.pushCommand (cmd);
-        repaint();
-    };
-
-    splitBtn.onClick = [this] { toggleAutoChop(); };
-
-    addSliceBtn.setTooltip ("Add Slice (A / hold Alt)");
-    lazyChopBtn.setTooltip ("Lazy Chop (L)");
-    dupBtn.setTooltip ("Duplicate Slice (D)");
-    splitBtn.setTooltip ("Auto Chop (C)");
+    addSliceBtn.setTooltip ("Add Slice (Shift+A / hold Alt)");
+    lazyChopBtn.setTooltip ("Lazy Chop (Shift+Z)");
+    dupBtn.setTooltip ("Duplicate Slice (Shift+D)");
+    splitBtn.setTooltip ("Auto Chop (Shift+C)");
     deleteBtn.setTooltip ("Delete Slice (Del)");
 
-    snapBtn.setTooltip ("Snap to Zero-Crossing (Z)");
-    snapBtn.onClick = [this] {
-        bool current = processor.snapToZeroCrossing.load();
-        bool newState = ! current;
-        processor.snapToZeroCrossing.store (newState);
-        updateSnapButtonAppearance (newState);
-        repaint();
-    };
+    snapBtn.setTooltip ("Snap to Zero-Crossing (Shift+X)");
+    snapBtn.onClick = [this] { toggleSnapToZeroCrossing(); };
     updateSnapButtonAppearance (false);
 
-    deleteBtn.onClick = [this] {
-        const auto& ui = processor.getUiSliceSnapshot();
-        int sel = ui.selectedSlice;
-        if (sel >= 0)
-        {
-            IntersectProcessor::Command cmd;
-            cmd.type = IntersectProcessor::CmdDeleteSlice;
-            cmd.intParam1 = sel;
-            processor.pushCommand (cmd);
-        }
-    };
+    deleteBtn.onClick = [this] { triggerDeleteSelectedSlice(); };
 
-    midiSelectBtn.setTooltip ("Follow MIDI (F)");
-    midiSelectBtn.onClick = [this] {
-        bool current = processor.midiSelectsSlice.load();
-        bool newState = ! current;
-        processor.midiSelectsSlice.store (newState);
-        updateMidiButtonAppearance (newState);
-        repaint();
-    };
+    midiSelectBtn.setTooltip ("Follow MIDI (Shift+F)");
+    midiSelectBtn.onClick = [this] { toggleFollowMidiSelection(); };
     updateMidiButtonAppearance (false);
 }
 
 ActionPanel::~ActionPanel() = default;
+
+void ActionPanel::triggerAddSliceMode()
+{
+    const bool nextState = ! waveformView.isSliceDrawModeActive();
+    waveformView.setSliceDrawMode (nextState);
+    if (nextState)
+        waveformView.showOverlayHint ("ADD mode: drag on waveform to create a slice.", 0, true);
+    else
+        waveformView.clearOverlayHint();
+    repaint();
+}
+
+void ActionPanel::triggerLazyChop()
+{
+    IntersectProcessor::Command cmd;
+    if (processor.lazyChop.isActive())
+        cmd.type = IntersectProcessor::CmdLazyChopStop;
+    else
+        cmd.type = IntersectProcessor::CmdLazyChopStart;
+    processor.pushCommand (cmd);
+    repaint();
+}
+
+void ActionPanel::triggerDuplicateSlice()
+{
+    IntersectProcessor::Command cmd;
+    cmd.type = IntersectProcessor::CmdDuplicateSlice;
+    cmd.intParam1 = -1;   // -1 = keep source position (existing behavior)
+    processor.pushCommand (cmd);
+    repaint();
+}
+
+void ActionPanel::triggerAutoChop()
+{
+    if (autoChopPanel != nullptr)
+    {
+        toggleAutoChop();
+        return;
+    }
+
+    const auto& ui = processor.getUiSliceSnapshot();
+    const int sel = ui.selectedSlice;
+    if (sel < 0 || sel >= ui.numSlices)
+    {
+        waveformView.showOverlayHint ("Select a slice first, then press AUTO.", 2200);
+        return;
+    }
+
+    toggleAutoChop();
+}
+
+void ActionPanel::triggerDeleteSelectedSlice()
+{
+    const auto& ui = processor.getUiSliceSnapshot();
+    const int sel = ui.selectedSlice;
+    if (sel < 0)
+        return;
+
+    IntersectProcessor::Command cmd;
+    cmd.type = IntersectProcessor::CmdDeleteSlice;
+    cmd.intParam1 = sel;
+    processor.pushCommand (cmd);
+}
+
+void ActionPanel::toggleSnapToZeroCrossing()
+{
+    const bool current = processor.snapToZeroCrossing.load();
+    const bool newState = ! current;
+    processor.snapToZeroCrossing.store (newState);
+    updateSnapButtonAppearance (newState);
+    repaint();
+}
+
+void ActionPanel::toggleFollowMidiSelection()
+{
+    const bool current = processor.midiSelectsSlice.load();
+    const bool newState = ! current;
+    processor.midiSelectsSlice.store (newState);
+    updateMidiButtonAppearance (newState);
+    repaint();
+}
 
 void ActionPanel::toggleAutoChop()
 {
