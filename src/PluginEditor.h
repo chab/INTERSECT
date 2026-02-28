@@ -22,11 +22,11 @@ public:
 
     juce::StringArray getAvailableThemes();
     void applyTheme (const juce::String& themeName);
+    void saveUserSettings (float scale, const juce::String& themeName);
 
 private:
     void timerCallback() override;
     void ensureDefaultThemes();
-    void saveUserSettings (float scale, const juce::String& themeName);
     void loadUserSettings();
 
     IntersectProcessor& processor;

@@ -133,11 +133,10 @@ bool IntersectEditor::keyPressed (const juce::KeyPress& key)
     if (mods.isCommandDown() || mods.isAltDown())
         return false;
 
-    // Esc - Close Auto Chop panel (only if open)
-    if (code == juce::KeyPress::escapeKey && actionPanel.isAutoChopOpen())
+    // Esc - Close Auto Chop panel if open
+    if (code == juce::KeyPress::escapeKey)
     {
-        actionPanel.toggleAutoChop();
-        return true;
+        if (actionPanel.isAutoChopOpen())  { actionPanel.toggleAutoChop();  return true; }
     }
 
     // Shift shortcuts keep plain letter keys available for DAW keyboard MIDI.
@@ -387,6 +386,9 @@ void IntersectEditor::saveUserSettings (float scale, const juce::String& themeNa
     juce::String content;
     content << "uiScale: " << juce::String (scale, 2) << "\n";
     content << "theme: " << themeName << "\n";
+    content << "nrpnEnabled: "  << (processor.midiEditState.enabled.load (std::memory_order_relaxed) ? "true" : "false") << "\n";
+    content << "nrpnChannel: "  << processor.midiEditState.channel.load (std::memory_order_relaxed) << "\n";
+    content << "nrpnBlockCc: "  << (processor.midiEditState.consumeMidiEditCc.load (std::memory_order_relaxed) ? "true" : "false") << "\n";
     file.replaceWithText (content);
 }
 
@@ -411,6 +413,21 @@ void IntersectEditor::loadUserSettings()
             else if (line.startsWith ("theme:"))
             {
                 themeName = line.fromFirstOccurrenceOf (":", false, false).trim();
+            }
+            else if (line.startsWith ("nrpnEnabled:"))
+            {
+                auto val = line.fromFirstOccurrenceOf (":", false, false).trim();
+                processor.midiEditState.enabled.store (val == "true", std::memory_order_relaxed);
+            }
+            else if (line.startsWith ("nrpnChannel:"))
+            {
+                int ch = line.fromFirstOccurrenceOf (":", false, false).trim().getIntValue();
+                processor.midiEditState.channel.store (juce::jlimit (0, 16, ch), std::memory_order_relaxed);
+            }
+            else if (line.startsWith ("nrpnBlockCc:"))
+            {
+                auto val = line.fromFirstOccurrenceOf (":", false, false).trim();
+                processor.midiEditState.consumeMidiEditCc.store (val == "true", std::memory_order_relaxed);
             }
         }
     }

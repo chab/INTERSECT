@@ -1,5 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
-project(Intersect VERSION 1.0.0)
+set(INTERSECT_VERSION "0.0.0" CACHE STRING "Plugin version (injected by CI)")
+project(Intersect)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -54,6 +55,7 @@ juce_add_plugin(Intersect
     PLUGIN_CODE Ixsr
     FORMATS VST3 AU Standalone
     PRODUCT_NAME "INTERSECT"
+    VERSION "${INTERSECT_VERSION}"
     IS_SYNTH TRUE
     NEEDS_MIDI_INPUT TRUE
     NEEDS_MIDI_OUTPUT TRUE

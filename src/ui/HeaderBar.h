@@ -41,7 +41,7 @@ private:
     juce::TextButton redoBtn  { "REDO" };
     juce::TextButton panicBtn { "PANIC" };
     juce::TextButton loadBtn  { "LOAD" };
-    juce::TextButton themeBtn { "UI" };
+    juce::TextButton themeBtn { "SET" };
 
     std::unique_ptr<juce::FileChooser> fileChooser;
 

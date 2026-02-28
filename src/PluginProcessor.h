@@ -1,6 +1,7 @@
 #pragma once
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <array>
+#include <optional>
 #include <vector>
 #include "audio/SampleData.h"
 #include "audio/SliceManager.h"
@@ -104,6 +105,41 @@ public:
         FieldCentsDetune,
     };
 
+    enum class MidiEditAction
+    {
+        none = 0,
+        zoom,
+        sliceStart,
+        sliceEnd,
+    };
+
+    struct MidiEditEvent
+    {
+        MidiEditAction action = MidiEditAction::none;
+        int steps = 0;
+    };
+
+    struct MidiEditParserState   // audio-thread only, plain arrays
+    {
+        uint8_t nrpnMsb[16]{};
+        uint8_t nrpnLsb[16]{};
+    };
+
+    struct MidiEditState
+    {
+        // Cross-thread config (UI writes, audio reads):
+        std::atomic<bool> enabled            { false };
+        std::atomic<int>  channel            { 0 };     // 0=omni, 1-16
+        std::atomic<bool> consumeMidiEditCc  { true };
+
+        // Audio-thread-only session state (plain):
+        int  activeGestureSlice { -1 };
+        int  gestureIdleSamples {  0 };
+        bool previewActive      { false };
+        bool gestureOpen        { false };
+        bool activeBoundaryIsStart { true };
+    };
+
     struct Command
     {
         CommandType type = CmdNone;
@@ -142,6 +178,31 @@ public:
         return uiSnapshotVersion.load (std::memory_order_acquire);
     }
 
+    struct MidiBoundaryPreviewState
+    {
+        int sliceIdx = -1;
+        int startSample = 0;
+        int endSample = 0;
+        bool active = false;
+        bool editingStart = false;
+        bool editingEnd = false;
+    };
+
+    bool getMidiBoundaryPreviewState (MidiBoundaryPreviewState& out) const
+    {
+        if (! midiBoundaryPreviewActive.load (std::memory_order_acquire))
+            return false;
+
+        out.sliceIdx = midiBoundaryPreviewSliceIdx.load (std::memory_order_relaxed);
+        out.startSample = midiBoundaryPreviewStart.load (std::memory_order_relaxed);
+        out.endSample = midiBoundaryPreviewEnd.load (std::memory_order_relaxed);
+        const int editedEdge = midiBoundaryPreviewEditedEdge.load (std::memory_order_relaxed);
+        out.active = true;
+        out.editingStart = (editedEdge == 1);
+        out.editingEnd = (editedEdge == 2);
+        return true;
+    }
+
     // Public state for UI access
     SampleData     sampleData;
     SliceManager   sliceManager;
@@ -175,6 +236,15 @@ public:
     std::atomic<int> liveDragSliceIdx   { -1 };
     std::atomic<int> liveDragBoundsStart {  0 };
     std::atomic<int> liveDragBoundsEnd   {  0 };
+    std::atomic<int> liveDragOwner       {  0 };   // 0=none, 1=mouse, 2=midi
+
+    std::atomic<int> midiBoundaryPreviewSliceIdx { -1 };
+    std::atomic<int> midiBoundaryPreviewStart { 0 };
+    std::atomic<int> midiBoundaryPreviewEnd { 0 };
+    std::atomic<int> midiBoundaryPreviewEditedEdge { 0 };   // 0=none, 1=start, 2=end
+    std::atomic<bool> midiBoundaryPreviewActive { false };
+
+    MidiEditState midiEditState;
 
     // Missing sample state (for relink UI)
     std::atomic<bool> sampleMissing { false };
@@ -196,7 +266,16 @@ private:
 
     void drainCommands();
     void handleCommand (const Command& cmd);
-    void processMidi (const juce::MidiBuffer& midi);
+    void processMidi (juce::MidiBuffer& midi);
+    std::optional<MidiEditEvent> tryParseMidiEditMessage (const juce::MidiMessage& msg);
+    void handleMidiEditEvent (const MidiEditEvent& event);
+    void applyMidiEditZoomSteps (int steps);
+    bool beginMidiSliceBoundaryGestureIfNeeded (int sliceIdx, bool isStart);
+    void applyMidiSliceBoundarySteps (int sliceIdx, bool isStart, int steps);
+    void applyLiveDragBoundsToSlice();
+    void setMidiBoundaryPreviewState (int sliceIdx, int startSample, int endSample, bool isStart);
+    void commitMidiSliceBoundaryGestureIfIdle (int blockSamples);
+    void clearMidiEditGestureState();
     void requestSampleLoad (const juce::File& file, LoadKind kind);
     void clearVoicesBeforeSampleSwap();
     void clampSlicesToSampleBounds();
@@ -227,6 +306,8 @@ private:
     std::atomic<int> pendingSetSliceBoundsIdx { -1 };
     std::atomic<int> pendingSetSliceBoundsStart { 0 };
     std::atomic<int> pendingSetSliceBoundsEnd { 0 };
+
+    MidiEditParserState midiEditParser;
 
     double currentSampleRate = 44100.0;
     bool gestureSnapshotCaptured = false;

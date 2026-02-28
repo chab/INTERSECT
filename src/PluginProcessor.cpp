@@ -2,6 +2,7 @@
 #include "PluginEditor.h"
 #include "audio/GrainEngine.h"
 #include "audio/AudioAnalysis.h"
+#include <cmath>
 #include <functional>
 #include <memory>
 
@@ -109,6 +110,19 @@ static bool isCriticalCommand (IntersectProcessor::CommandType type)
             return false;
     }
 }
+
+constexpr int kNrpnCcMsb  = 99;   // NRPN MSB address byte
+constexpr int kNrpnCcLsb  = 98;   // NRPN LSB address byte
+constexpr int kNrpnCcIncr = 96;   // Data Increment (CC 96 = value up)
+constexpr int kNrpnCcDecr = 97;   // Data Decrement (CC 97 = value down)
+constexpr int kMidiEditNrpnZoom       = 8193;
+constexpr int kMidiEditNrpnSliceStart = 8194;
+constexpr int kMidiEditNrpnSliceEnd   = 8195;
+constexpr int kMidiEditMinSliceLength = 64;
+constexpr int kMidiEditStepsPerView   = 192;
+constexpr float kMidiEditZoomClampMax = 16384.0f;
+constexpr double kMidiEditZoomStepsPerOctave = 6.0;
+constexpr double kMidiEditGestureIdleSeconds = 0.3;
 } // namespace
 
 IntersectProcessor::IntersectProcessor()
@@ -462,10 +476,10 @@ void IntersectProcessor::drainCommands()
     const auto dropped = droppedCommandCount.exchange (0, std::memory_order_relaxed);
     if (handledAny || dropped > 0)
         updateHostDisplay (ChangeDetails().withNonParameterStateChanged (true));
+}
 
-    // Apply live drag bounds every block so note-ons during edge/move drag use
-    // the current preview position. No snapshot — undo is handled by the
-    // CmdBeginGesture + CmdSetSliceBounds pair sent on mouseDown/mouseUp.
+void IntersectProcessor::applyLiveDragBoundsToSlice()
+{
     const int liveIdx = liveDragSliceIdx.load (std::memory_order_acquire);
     if (liveIdx >= 0 && liveIdx < sliceManager.getNumSlices())
     {
@@ -477,10 +491,11 @@ void IntersectProcessor::drainCommands()
             int end   = liveDragBoundsEnd.load   (std::memory_order_relaxed);
             start = juce::jlimit (0, juce::jmax (0, maxLen - 1), start);
             end   = juce::jlimit (start + 1, juce::jmax (start + 1, maxLen), end);
-            if (end - start < 64)
-                end = juce::jmin (maxLen, start + 64);
+            if (end - start < kMidiEditMinSliceLength)
+                end = juce::jmin (maxLen, start + kMidiEditMinSliceLength);
             s.startSample = start;
             s.endSample   = end;
+            uiSnapshotDirty.store (true, std::memory_order_release);
         }
     }
 }
@@ -894,11 +909,285 @@ void IntersectProcessor::handleCommand (const Command& cmd)
     }
 }
 
-void IntersectProcessor::processMidi (const juce::MidiBuffer& midi)
+std::optional<IntersectProcessor::MidiEditEvent> IntersectProcessor::tryParseMidiEditMessage (
+    const juce::MidiMessage& msg)
 {
+    if (! msg.isController())
+        return std::nullopt;
+
+    const int channelIndex = msg.getChannel() - 1;
+    if (channelIndex < 0 || channelIndex >= 16)
+        return std::nullopt;
+
+    const int cc  = msg.getControllerNumber();
+    const int val = msg.getControllerValue();
+
+    if (cc == kNrpnCcMsb)
+    {
+        midiEditParser.nrpnMsb[(size_t) channelIndex] = (uint8_t) val;
+        return std::nullopt;
+    }
+
+    if (cc == kNrpnCcLsb)
+    {
+        midiEditParser.nrpnLsb[(size_t) channelIndex] = (uint8_t) val;
+        return std::nullopt;
+    }
+
+    if (cc != kNrpnCcIncr && cc != kNrpnCcDecr)
+        return std::nullopt;
+
+    const int nrpnNum = midiEditParser.nrpnMsb[(size_t) channelIndex] * 128
+                      + midiEditParser.nrpnLsb[(size_t) channelIndex];
+
+    MidiEditAction action = MidiEditAction::none;
+    if (nrpnNum == kMidiEditNrpnZoom)        action = MidiEditAction::zoom;
+    else if (nrpnNum == kMidiEditNrpnSliceStart) action = MidiEditAction::sliceStart;
+    else if (nrpnNum == kMidiEditNrpnSliceEnd)   action = MidiEditAction::sliceEnd;
+
+    if (action == MidiEditAction::none)
+        return std::nullopt;
+
+    MidiEditEvent event;
+    event.action = action;
+    event.steps  = (cc == kNrpnCcIncr) ? 1 : -1;
+    return event;
+}
+
+void IntersectProcessor::applyMidiEditZoomSteps (int steps)
+{
+    if (steps == 0)
+        return;
+
+    const int numFrames = sampleData.getNumFrames();
+    if (numFrames <= 0)
+        return;
+
+    auto getViewLen = [&] (float currentZoom) -> int
+    {
+        return juce::jlimit (1, numFrames, (int) ((float) numFrames / std::max (1.0f, currentZoom)));
+    };
+
+    const float currentZoom = zoom.load (std::memory_order_relaxed);
+    const int currentViewLen = getViewLen (currentZoom);
+    const int currentMaxStart = std::max (0, numFrames - currentViewLen);
+    const float currentScroll = scroll.load (std::memory_order_relaxed);
+    const int currentViewStart = (currentMaxStart > 0)
+                               ? (int) (currentScroll * (float) currentMaxStart)
+                               : 0;
+
+    int anchorSample = currentViewStart + currentViewLen / 2;
+    if (midiEditState.previewActive && midiEditState.activeGestureSlice >= 0)
+    {
+        anchorSample = midiEditState.activeBoundaryIsStart
+                     ? liveDragBoundsStart.load (std::memory_order_relaxed)
+                     : liveDragBoundsEnd.load   (std::memory_order_relaxed);
+    }
+
+    const float newZoom = juce::jlimit (1.0f, kMidiEditZoomClampMax,
+        currentZoom * std::pow (2.0f, (float) steps / (float) kMidiEditZoomStepsPerOctave));
+    const int newViewLen = getViewLen (newZoom);
+    const int newMaxStart = std::max (0, numFrames - newViewLen);
+    const int desiredStart = juce::jlimit (0, newMaxStart, anchorSample - newViewLen / 2);
+    const float newScroll = (newMaxStart > 0) ? (float) desiredStart / (float) newMaxStart : 0.0f;
+
+    zoom.store (newZoom, std::memory_order_relaxed);
+    scroll.store (newScroll, std::memory_order_relaxed);
+}
+
+void IntersectProcessor::setMidiBoundaryPreviewState (int sliceIdx, int startSample, int endSample,
+                                                      bool isStart)
+{
+    midiBoundaryPreviewSliceIdx.store (sliceIdx, std::memory_order_relaxed);
+    midiBoundaryPreviewStart.store (startSample, std::memory_order_relaxed);
+    midiBoundaryPreviewEnd.store (endSample, std::memory_order_relaxed);
+    midiBoundaryPreviewEditedEdge.store (isStart ? 1 : 2, std::memory_order_relaxed);
+    midiBoundaryPreviewActive.store (true, std::memory_order_release);
+}
+
+bool IntersectProcessor::beginMidiSliceBoundaryGestureIfNeeded (int sliceIdx, bool isStart)
+{
+    if (sliceIdx < 0 || sliceIdx >= sliceManager.getNumSlices())
+        return false;
+
+    if (midiEditState.gestureOpen)
+    {
+        midiEditState.activeBoundaryIsStart = isStart;
+        return midiEditState.activeGestureSlice == sliceIdx;
+    }
+
+    int expectedOwner = 0;
+    if (! liveDragOwner.compare_exchange_strong (expectedOwner, 2,
+                                                 std::memory_order_acq_rel,
+                                                 std::memory_order_acquire)
+        && expectedOwner != 2)
+    {
+        return false;
+    }
+
+    const auto& slice = sliceManager.getSlice (sliceIdx);
+    liveDragBoundsStart.store (slice.startSample, std::memory_order_relaxed);
+    liveDragBoundsEnd.store   (slice.endSample,   std::memory_order_relaxed);
+    liveDragSliceIdx.store    (sliceIdx,          std::memory_order_release);
+
+    Command gestureCmd;
+    gestureCmd.type = CmdBeginGesture;
+    handleCommand (gestureCmd);
+
+    midiEditState.gestureOpen = true;
+    midiEditState.previewActive = true;
+    midiEditState.activeGestureSlice = sliceIdx;
+    midiEditState.gestureIdleSamples = 0;
+    midiEditState.activeBoundaryIsStart = isStart;
+    setMidiBoundaryPreviewState (sliceIdx, slice.startSample, slice.endSample, isStart);
+    uiSnapshotDirty.store (true, std::memory_order_release);
+    return true;
+}
+
+void IntersectProcessor::applyMidiSliceBoundarySteps (int sliceIdx, bool isStart, int steps)
+{
+    if (steps == 0 || ! beginMidiSliceBoundaryGestureIfNeeded (sliceIdx, isStart))
+        return;
+
+    const int numFrames = sampleData.getNumFrames();
+    if (numFrames <= 0)
+        return;
+
+    auto getViewLen = [&]() -> int
+    {
+        const float currentZoom = zoom.load (std::memory_order_relaxed);
+        return juce::jlimit (1, numFrames, (int) ((float) numFrames / std::max (1.0f, currentZoom)));
+    };
+
+    auto centreBoundaryInView = [&] (int samplePos)
+    {
+        const int viewLen = getViewLen();
+        const int maxStart = std::max (0, numFrames - viewLen);
+        const int desiredStart = juce::jlimit (0, maxStart, samplePos - viewLen / 2);
+        const float newScroll = (maxStart > 0) ? (float) desiredStart / (float) maxStart : 0.0f;
+        scroll.store (newScroll, std::memory_order_relaxed);
+    };
+
+    const int samplesPerStep = std::max (1, getViewLen() / kMidiEditStepsPerView);
+    const int sampleDelta = steps * samplesPerStep;
+    const int currentStart = liveDragBoundsStart.load (std::memory_order_relaxed);
+    const int currentEnd   = liveDragBoundsEnd.load   (std::memory_order_relaxed);
+
+    int boundaryPos = isStart ? currentStart : currentEnd;
+    if (isStart)
+    {
+        boundaryPos = juce::jlimit (0, std::max (0, currentEnd - kMidiEditMinSliceLength),
+                                    currentStart + sampleDelta);
+    }
+    else
+    {
+        boundaryPos = juce::jlimit (std::min (numFrames, currentStart + kMidiEditMinSliceLength),
+                                    numFrames, currentEnd + sampleDelta);
+    }
+
+    if (snapToZeroCrossing.load() && sampleData.isLoaded())
+        boundaryPos = AudioAnalysis::findNearestZeroCrossing (sampleData.getBuffer(), boundaryPos);
+
+    if (isStart)
+        liveDragBoundsStart.store (boundaryPos, std::memory_order_relaxed);
+    else
+        liveDragBoundsEnd.store (boundaryPos, std::memory_order_relaxed);
+
+    midiEditState.activeBoundaryIsStart = isStart;
+    midiEditState.gestureIdleSamples = 0;
+    setMidiBoundaryPreviewState (sliceIdx,
+                                 liveDragBoundsStart.load (std::memory_order_relaxed),
+                                 liveDragBoundsEnd.load (std::memory_order_relaxed),
+                                 isStart);
+    applyLiveDragBoundsToSlice();
+    uiSnapshotDirty.store (true, std::memory_order_release);
+    centreBoundaryInView (boundaryPos);
+}
+
+void IntersectProcessor::handleMidiEditEvent (const MidiEditEvent& event)
+{
+    switch (event.action)
+    {
+        case MidiEditAction::zoom:
+            applyMidiEditZoomSteps (event.steps);
+            break;
+
+        case MidiEditAction::sliceStart:
+        case MidiEditAction::sliceEnd:
+        {
+            const int sliceIdx = midiEditState.gestureOpen
+                               ? midiEditState.activeGestureSlice
+                               : sliceManager.selectedSlice.load (std::memory_order_relaxed);
+            applyMidiSliceBoundarySteps (sliceIdx, event.action == MidiEditAction::sliceStart, event.steps);
+            break;
+        }
+
+        case MidiEditAction::none:
+            break;
+    }
+}
+
+void IntersectProcessor::commitMidiSliceBoundaryGestureIfIdle (int blockSamples)
+{
+    if (! midiEditState.gestureOpen || ! midiEditState.previewActive)
+        return;
+
+    midiEditState.gestureIdleSamples += blockSamples;
+    const int idleThreshold = (int) (currentSampleRate * kMidiEditGestureIdleSeconds);
+    if (midiEditState.gestureIdleSamples <= idleThreshold)
+        return;
+
+    const int sliceIdx = midiEditState.activeGestureSlice;
+    if (sliceIdx >= 0 && sliceIdx < sliceManager.getNumSlices())
+    {
+        Command cmd;
+        cmd.type         = CmdSetSliceBounds;
+        cmd.intParam1    = sliceIdx;
+        cmd.intParam2    = liveDragBoundsStart.load (std::memory_order_relaxed);
+        cmd.positions[0] = liveDragBoundsEnd.load   (std::memory_order_relaxed);
+        cmd.numPositions = 1;
+        handleCommand (cmd);
+    }
+    else
+    {
+        gestureSnapshotCaptured = false;
+    }
+
+    clearMidiEditGestureState();
+}
+
+void IntersectProcessor::clearMidiEditGestureState()
+{
+    liveDragSliceIdx.store (-1, std::memory_order_release);
+    liveDragOwner.store    (0,  std::memory_order_release);
+    midiBoundaryPreviewSliceIdx.store (-1, std::memory_order_relaxed);
+    midiBoundaryPreviewStart.store (0, std::memory_order_relaxed);
+    midiBoundaryPreviewEnd.store (0, std::memory_order_relaxed);
+    midiBoundaryPreviewEditedEdge.store (0, std::memory_order_relaxed);
+    midiBoundaryPreviewActive.store (false, std::memory_order_release);
+    midiEditState.activeGestureSlice = -1;
+    midiEditState.gestureIdleSamples = 0;
+    midiEditState.previewActive = false;
+    midiEditState.gestureOpen = false;
+    midiEditState.activeBoundaryIsStart = true;
+}
+
+void IntersectProcessor::processMidi (juce::MidiBuffer& midi)
+{
+    const bool editEnabled = midiEditState.enabled.load (std::memory_order_acquire);
+    const int  editChannel = midiEditState.channel.load (std::memory_order_relaxed);
+    const bool doConsume   = midiEditState.consumeMidiEditCc.load (std::memory_order_relaxed);
+
     for (const auto metadata : midi)
     {
         const auto msg = metadata.getMessage();
+
+        if (editEnabled && msg.isController()
+            && (editChannel == 0 || msg.getChannel() == editChannel))
+        {
+            if (auto midiEditEvent = tryParseMidiEditMessage (msg))
+                handleMidiEditEvent (*midiEditEvent);
+        }
 
         if (msg.isNoteOn())
         {
@@ -911,9 +1200,8 @@ void IntersectProcessor::processMidi (const juce::MidiBuffer& midi)
                 int newSliceIdx = lazyChop.onNote (note, voicePool, sliceManager);
                 if (newSliceIdx >= 0)
                 {
+                    sliceManager.selectedSlice.store (newSliceIdx, std::memory_order_relaxed);
                     uiSnapshotDirty.store (true, std::memory_order_release);
-                    if (midiSelectsSlice.load (std::memory_order_relaxed))
-                        sliceManager.selectedSlice.store (newSliceIdx, std::memory_order_relaxed);
                 }
             }
             else
@@ -995,6 +1283,23 @@ void IntersectProcessor::processMidi (const juce::MidiBuffer& midi)
             std::fill (std::begin (heldNotes), std::end (heldNotes), false);
         }
     }
+
+    // Strip MIDI edit CCs from the buffer so they don't pass downstream
+    if (editEnabled && doConsume)
+    {
+        juce::MidiBuffer filtered;
+        for (const auto metadata : midi)
+        {
+            const auto msg = metadata.getMessage();
+            const int cc = msg.getControllerNumber();
+            const bool strip = msg.isController()
+                && (editChannel == 0 || msg.getChannel() == editChannel)
+                && (cc == kNrpnCcMsb || cc == kNrpnCcLsb || cc == kNrpnCcIncr || cc == kNrpnCcDecr);
+            if (! strip)
+                filtered.addEvent (msg, metadata.samplePosition);
+        }
+        midi = std::move (filtered);
+    }
 }
 
 static inline float sanitiseSample (float x)
@@ -1025,8 +1330,21 @@ void IntersectProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         if (req == -1)
             voicePool.stopShiftPreview();
         else if (req >= 0 && ! lazyChop.isActive() && sampleData.isLoaded())
-            voicePool.startShiftPreview (req, sampleData.getNumFrames(),
-                                         currentSampleRate, sampleData);
+        {
+            PreviewStretchParams psp;
+            psp.stretchEnabled = stretchParam->load() > 0.5f;
+            psp.algorithm      = (int) algoParam->load();
+            psp.bpm            = bpmParam->load();
+            psp.pitch          = pitchParam->load();
+            psp.dawBpm         = dawBpm.load();
+            psp.tonality       = tonalityParam->load();
+            psp.formant        = formantParam->load();
+            psp.formantComp    = formantCompParam->load() > 0.5f;
+            psp.grainMode      = (int) grainModeParam->load();
+            psp.sampleRate     = currentSampleRate;
+            psp.sample         = &sampleData;
+            voicePool.startShiftPreview (req, sampleData.getNumFrames(), psp);
+        }
     }
 
     bool loadStateChanged = false;
@@ -1077,18 +1395,24 @@ void IntersectProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         updateHostDisplay (ChangeDetails().withNonParameterStateChanged (true));
 
     drainCommands();
-
-    if (gestureSnapshotCaptured)
-    {
-        ++blocksSinceGestureActivity;
-        if (blocksSinceGestureActivity > 2)
-            gestureSnapshotCaptured = false;
-    }
+    applyLiveDragBoundsToSlice();
 
     // Update max active voices from param
     voicePool.setMaxActiveVoices ((int) maxVoicesParam->load());
 
     processMidi (midi);
+
+    if (midiEditState.gestureOpen && midiEditState.previewActive)
+    {
+        blocksSinceGestureActivity = 0;
+        commitMidiSliceBoundaryGestureIfIdle (buffer.getNumSamples());
+    }
+    else if (gestureSnapshotCaptured)
+    {
+        ++blocksSinceGestureActivity;
+        if (blocksSinceGestureActivity > 2)
+            gestureSnapshotCaptured = false;
+    }
 
     if (uiSnapshotDirty.exchange (false, std::memory_order_acq_rel))
         publishUiSliceSnapshot();
@@ -1188,7 +1512,7 @@ void IntersectProcessor::getStateInformation (juce::MemoryBlock& destData)
     juce::MemoryOutputStream stream (destData, false);
 
     // Version
-    stream.writeInt (16);
+    stream.writeInt (19);
 
     // APVTS state
     auto state = apvts.copyState();
@@ -1250,6 +1574,11 @@ void IntersectProcessor::getStateInformation (juce::MemoryBlock& destData)
 
     // v12: snap-to-zero-crossing toggle
     stream.writeBool (snapToZeroCrossing.load());
+
+    // v19: MIDI edit settings
+    stream.writeBool (midiEditState.enabled.load (std::memory_order_relaxed));
+    stream.writeInt  (midiEditState.channel.load (std::memory_order_relaxed));
+    stream.writeBool (midiEditState.consumeMidiEditCc.load (std::memory_order_relaxed));
 }
 
 void IntersectProcessor::setStateInformation (const void* data, int sizeInBytes)
@@ -1257,7 +1586,7 @@ void IntersectProcessor::setStateInformation (const void* data, int sizeInBytes)
     juce::MemoryInputStream stream (data, (size_t) sizeInBytes, false);
 
     int version = stream.readInt();
-    if (version != 16)
+    if (version != 19)
         return;
 
     // APVTS state
@@ -1350,6 +1679,11 @@ void IntersectProcessor::setStateInformation (const void* data, int sizeInBytes)
     publishUiSliceSnapshot();
 
     snapToZeroCrossing.store (stream.readBool());
+
+    // v19: MIDI edit settings
+    midiEditState.enabled.store     (stream.readBool(), std::memory_order_relaxed);
+    midiEditState.channel.store     (stream.readInt(),  std::memory_order_relaxed);
+    midiEditState.consumeMidiEditCc.store (stream.readBool(), std::memory_order_relaxed);
 }
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()

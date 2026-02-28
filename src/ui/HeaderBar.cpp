@@ -59,14 +59,15 @@ void HeaderBar::resized()
 {
     int right = getWidth() - 8;  // 8px right margin matching content
     int panicW = 56;
+    int setBtnW = 42;
 
-    themeBtn.setBounds  (right - 26, 2, 26, 28);
-    loadBtn.setBounds   (right - 26 - 4 - 40, 2, 40, 28);
-    panicBtn.setBounds  (right - 26 - 4 - 40 - 4 - panicW, 2, panicW, 28);
+    themeBtn.setBounds  (right - setBtnW, 2, setBtnW, 28);
+    loadBtn.setBounds   (right - setBtnW - 4 - 40, 2, 40, 28);
+    panicBtn.setBounds  (right - setBtnW - 4 - 40 - 4 - panicW, 2, panicW, 28);
 
     // UNDO/REDO stacked vertically
     int undoW = 48;
-    int undoX = right - 26 - 4 - 40 - 4 - panicW - 4 - undoW;
+    int undoX = right - setBtnW - 4 - 40 - 4 - panicW - 4 - undoW;
     undoBtn.setBounds   (undoX, 2, undoW, 13);
     redoBtn.setBounds   (undoX, 17, undoW, 13);
 }
@@ -693,13 +694,31 @@ void HeaderBar::showThemePopup()
     auto themes = editor->getAvailableThemes();
     auto currentName = getTheme().name;
 
+    const bool nrpnEnabled = processor.midiEditState.enabled.load (std::memory_order_relaxed);
+    const bool blockCc     = processor.midiEditState.consumeMidiEditCc.load (std::memory_order_relaxed);
+    const int  nrpnCh      = processor.midiEditState.channel.load (std::memory_order_relaxed);
+    const juce::String chStr = (nrpnCh == 0) ? "OMNI" : juce::String (nrpnCh);
+
     juce::PopupMenu menu;
+
+    // Version header
+    menu.addSectionHeader ("INTERSECT  v" + juce::String (JucePlugin_VersionString));
+    menu.addSeparator();
 
     // Scale section
     float currentScale = processor.apvts.getRawParameterValue (ParamIds::uiScale)->load();
     menu.addSectionHeader ("Scale  " + juce::String (currentScale, 2) + "x");
     menu.addItem (100, "- 0.25");
     menu.addItem (101, "+ 0.25");
+    menu.addSeparator();
+
+    // NRPN section
+    menu.addSectionHeader ("NRPN");
+    menu.addItem (200, "Enable",       true, nrpnEnabled);
+    menu.addItem (201, "Consume CCs",  true, blockCc);
+    menu.addSectionHeader ("MIDI Channel: " + chStr);
+    menu.addItem (202, "Channel  -");
+    menu.addItem (203, "Channel  +");
     menu.addSeparator();
 
     // Theme section
@@ -712,11 +731,38 @@ void HeaderBar::showThemePopup()
     menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&themeBtn)
                             .withParentComponent (topLevel)
                             .withStandardItemHeight ((int) (24 * ms2)),
-        [this, editor, themes] (int result) {
+        [this, editor, themes] (int result)
+        {
+            float scale = processor.apvts.getRawParameterValue (ParamIds::uiScale)->load();
+
             if (result == 100)
                 adjustScale (-0.25f);
             else if (result == 101)
                 adjustScale (0.25f);
+            else if (result == 200)
+            {
+                bool current = processor.midiEditState.enabled.load (std::memory_order_relaxed);
+                processor.midiEditState.enabled.store (! current, std::memory_order_release);
+                editor->saveUserSettings (scale, getTheme().name);
+            }
+            else if (result == 201)
+            {
+                bool current = processor.midiEditState.consumeMidiEditCc.load (std::memory_order_relaxed);
+                processor.midiEditState.consumeMidiEditCc.store (! current, std::memory_order_relaxed);
+                editor->saveUserSettings (scale, getTheme().name);
+            }
+            else if (result == 202)
+            {
+                int ch = processor.midiEditState.channel.load (std::memory_order_relaxed);
+                processor.midiEditState.channel.store (juce::jlimit (0, 16, ch - 1), std::memory_order_relaxed);
+                editor->saveUserSettings (scale, getTheme().name);
+            }
+            else if (result == 203)
+            {
+                int ch = processor.midiEditState.channel.load (std::memory_order_relaxed);
+                processor.midiEditState.channel.store (juce::jlimit (0, 16, ch + 1), std::memory_order_relaxed);
+                editor->saveUserSettings (scale, getTheme().name);
+            }
             else if (result > 0 && result <= themes.size())
                 editor->applyTheme (themes[result - 1]);
         });

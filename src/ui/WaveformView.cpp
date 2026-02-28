@@ -41,26 +41,39 @@ void WaveformView::timerCallback()
 
 bool WaveformView::hasActiveSlicePreview() const noexcept
 {
-    if (dragSliceIdx < 0)
-        return false;
+    if (dragSliceIdx >= 0)
+        return dragMode == DragEdgeLeft || dragMode == DragEdgeRight || dragMode == MoveSlice;
 
-    return dragMode == DragEdgeLeft || dragMode == DragEdgeRight || dragMode == MoveSlice;
+    IntersectProcessor::MidiBoundaryPreviewState preview;
+    return processor.getMidiBoundaryPreviewState (preview);
 }
 
 bool WaveformView::getActiveSlicePreview (int& sliceIdx, int& startSample, int& endSample) const
 {
-    if (! hasActiveSlicePreview())
+    if (dragSliceIdx >= 0
+        && (dragMode == DragEdgeLeft || dragMode == DragEdgeRight || dragMode == MoveSlice))
+    {
+        sliceIdx = dragSliceIdx;
+        startSample = dragPreviewStart;
+        endSample = dragPreviewEnd;
+        return true;
+    }
+
+    IntersectProcessor::MidiBoundaryPreviewState preview;
+    if (! processor.getMidiBoundaryPreviewState (preview))
         return false;
 
-    sliceIdx = dragSliceIdx;
-    startSample = dragPreviewStart;
-    endSample = dragPreviewEnd;
+    sliceIdx = preview.sliceIdx;
+    startSample = preview.startSample;
+    endSample = preview.endSample;
     return true;
 }
 
 bool WaveformView::isInteracting() const noexcept
 {
-    return dragMode != None || midDragging || shiftPreviewActive;
+    IntersectProcessor::MidiBoundaryPreviewState preview;
+    return dragMode != None || midDragging || shiftPreviewActive
+        || processor.getMidiBoundaryPreviewState (preview);
 }
 
 WaveformView::ViewState WaveformView::buildViewState (const SampleData::SnapshotPtr& sampleSnap) const
@@ -384,6 +397,10 @@ void WaveformView::drawSlices (juce::Graphics& g)
     const auto& ui = processor.getUiSliceSnapshot();
     int sel = ui.selectedSlice;
     int num = ui.numSlices;
+    int previewIdx = -1;
+    int previewStart = 0;
+    int previewEnd = 0;
+    const bool previewActive = getActiveSlicePreview (previewIdx, previewStart, previewEnd);
 
     for (int i = 0; i < num; ++i)
     {
@@ -392,11 +409,10 @@ void WaveformView::drawSlices (juce::Graphics& g)
 
         int drawStartSample = s.startSample;
         int drawEndSample = s.endSample;
-        if (i == sel && dragSliceIdx == i
-            && (dragMode == DragEdgeLeft || dragMode == DragEdgeRight || dragMode == MoveSlice))
+        if (previewActive && previewIdx == i)
         {
-            drawStartSample = dragPreviewStart;
-            drawEndSample = dragPreviewEnd;
+            drawStartSample = previewStart;
+            drawEndSample = previewEnd;
         }
 
         int x1 = std::max (0, sampleToPixel (drawStartSample));
@@ -404,7 +420,7 @@ void WaveformView::drawSlices (juce::Graphics& g)
         int sw = x2 - x1;
         if (sw <= 0) continue;
 
-        if (i == sel)
+        if (i == sel || (previewActive && previewIdx == i))
         {
             // Selected: purple overlay
             g.setColour (getTheme().selectionOverlay.withAlpha (0.22f));
@@ -615,53 +631,81 @@ void WaveformView::mouseDown (const juce::MouseEvent& e)
         const auto& s = ui.slices[(size_t) sel];
         if (s.active)
         {
+            auto tryBeginMouseBoundsDrag = [&] (DragMode newMode) -> bool
+            {
+                int expectedOwner = 0;
+                if (! processor.liveDragOwner.compare_exchange_strong (expectedOwner, 1,
+                                                                       std::memory_order_acq_rel,
+                                                                       std::memory_order_acquire)
+                    && expectedOwner != 1)
+                {
+                    return false;
+                }
+
+                processor.liveDragBoundsStart.store (s.startSample, std::memory_order_relaxed);
+                processor.liveDragBoundsEnd.store   (s.endSample,   std::memory_order_relaxed);
+                processor.liveDragSliceIdx.store    (sel,           std::memory_order_release);
+
+                IntersectProcessor::Command gestureCmd;
+                gestureCmd.type = IntersectProcessor::CmdBeginGesture;
+                processor.pushCommand (gestureCmd);
+                dragMode = newMode;
+                dragSliceIdx = sel;
+                dragPreviewStart = s.startSample;
+                dragPreviewEnd = s.endSample;
+                return true;
+            };
+
             int x1 = sampleToPixel (s.startSample);
             int x2 = sampleToPixel (s.endSample);
 
             if (std::abs (e.x - x1) < 6)
             {
-                IntersectProcessor::Command gestureCmd;
-                gestureCmd.type = IntersectProcessor::CmdBeginGesture;
-                processor.pushCommand (gestureCmd);
-                dragMode = DragEdgeLeft;
-                dragSliceIdx = sel;
-                dragPreviewStart = s.startSample;
-                dragPreviewEnd = s.endSample;
-                return;
+                if (tryBeginMouseBoundsDrag (DragEdgeLeft))
+                    return;
             }
             if (std::abs (e.x - x2) < 6)
             {
-                IntersectProcessor::Command gestureCmd;
-                gestureCmd.type = IntersectProcessor::CmdBeginGesture;
-                processor.pushCommand (gestureCmd);
-                dragMode = DragEdgeRight;
-                dragSliceIdx = sel;
-                dragPreviewStart = s.startSample;
-                dragPreviewEnd = s.endSample;
-                return;
+                if (tryBeginMouseBoundsDrag (DragEdgeRight))
+                    return;
             }
 
             if (e.x > x1 && e.x < x2)
             {
-                IntersectProcessor::Command gestureCmd;
-                gestureCmd.type = IntersectProcessor::CmdBeginGesture;
-                processor.pushCommand (gestureCmd);
-
                 dragSliceIdx = sel;
                 dragOffset   = samplePos - s.startSample;
                 dragSliceLen = s.endSample - s.startSample;
 
                 if (e.mods.isCtrlDown())
                 {
+                    IntersectProcessor::Command gestureCmd;
+                    gestureCmd.type = IntersectProcessor::CmdBeginGesture;
+                    processor.pushCommand (gestureCmd);
                     dragMode   = DuplicateSlice;
                     ghostStart = s.startSample;
                     ghostEnd   = s.endSample;
                 }
                 else
                 {
+                    int expectedOwner = 0;
+                    if (! processor.liveDragOwner.compare_exchange_strong (expectedOwner, 1,
+                                                                           std::memory_order_acq_rel,
+                                                                           std::memory_order_acquire)
+                        && expectedOwner != 1)
+                    {
+                        return;
+                    }
+
+                    IntersectProcessor::Command gestureCmd;
+                    gestureCmd.type = IntersectProcessor::CmdBeginGesture;
+                    processor.pushCommand (gestureCmd);
+
                     dragMode = MoveSlice;
                     dragPreviewStart = s.startSample;
                     dragPreviewEnd = s.endSample;
+                    processor.liveDragBoundsStart.store (dragPreviewStart, std::memory_order_relaxed);
+                    processor.liveDragBoundsEnd.store   (dragPreviewEnd,   std::memory_order_relaxed);
+                    processor.liveDragSliceIdx.store    (dragSliceIdx,     std::memory_order_release);
                 }
                 return;
             }
@@ -739,8 +783,12 @@ void WaveformView::mouseDrag (const juce::MouseEvent& e)
     if ((dragMode == DragEdgeLeft || dragMode == DragEdgeRight || dragMode == MoveSlice)
         && dragSliceIdx >= 0)
     {
+        if (processor.liveDragOwner.load (std::memory_order_acquire) == 2)
+            return;
+
         processor.liveDragBoundsStart.store (dragPreviewStart, std::memory_order_relaxed);
         processor.liveDragBoundsEnd.store   (dragPreviewEnd,   std::memory_order_relaxed);
+        processor.liveDragOwner.store       (1,                std::memory_order_release);
         processor.liveDragSliceIdx.store    (dragSliceIdx,     std::memory_order_release);
     }
 
@@ -830,6 +878,7 @@ void WaveformView::mouseUp (const juce::MouseEvent& e)
     // Must happen before dragSliceIdx is cleared so there's no window where
     // a stale idx could re-activate on the next block.
     processor.liveDragSliceIdx.store (-1, std::memory_order_release);
+    processor.liveDragOwner.store    (0,  std::memory_order_release);
 
     dragMode = None;
     dragSliceIdx = -1;

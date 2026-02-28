@@ -13,8 +13,12 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Get version
+        shell: bash
+        run: echo "PLUGIN_VERSION=$(echo '${{ github.ref_name }}' | sed 's/^v//')" >> $GITHUB_ENV
+
       - name: Configure
-        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DINTERSECT_VERSION=${{ env.PLUGIN_VERSION }}
 
       - name: Build
         run: cmake --build build --config Release
@@ -43,8 +47,12 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Get version
+        shell: bash
+        run: echo "PLUGIN_VERSION=$(echo '${{ github.ref_name }}' | sed 's/^v//')" >> $GITHUB_ENV
+
       - name: Configure
-        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DINTERSECT_VERSION=${{ env.PLUGIN_VERSION }}
 
       - name: Build
         run: cmake --build build --config Release
@@ -68,8 +76,12 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Get version
+        shell: bash
+        run: echo "PLUGIN_VERSION=$(echo '${{ github.ref_name }}' | sed 's/^v//')" >> $GITHUB_ENV
+
       - name: Configure
-        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DINTERSECT_VERSION=${{ env.PLUGIN_VERSION }}
 
       - name: Build
         run: cmake --build build --config Release
@@ -94,8 +106,12 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Get version
+        shell: bash
+        run: echo "PLUGIN_VERSION=$(echo '${{ github.ref_name }}' | sed 's/^v//')" >> $GITHUB_ENV
+
       - name: Configure
-        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DINTERSECT_VERSION=${{ env.PLUGIN_VERSION }}
 
       - name: Build
         run: cmake --build build --config Release

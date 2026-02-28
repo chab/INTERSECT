@@ -10,6 +10,7 @@ INTERSECT is a sample slicer instrument plugin (VST3/AU/Standalone) with per-sli
 - [Installation](#installation)
 - [Workflow Basics](#workflow-basics)
 - [Controls and Shortcuts Reference](#controls-and-shortcuts-reference)
+- [MIDI Controller Routing (NRPN)](#midi-controller-routing-nrpn)
 - [Theme Customization](#theme-customization)
 - [Build from Source](#build-from-source)
 - [Dependencies](#dependencies)
@@ -80,7 +81,7 @@ xattr -cr /Applications/INTERSECT.app
 | --- | --- | --- |
 | `BPM` | Sample default BPM | Drag up/down, double-click to type |
 | `SET BPM` | Calculate BPM from duration menu | 16 bars to 1/16 note |
-| `PITCH` | Semitone shift | `-24` to `+24` |
+| `PITCH` | Semitone shift | `-48` to `+48` |
 | `TUNE` | Fine detune | `-100` to `+100` cents |
 | `ALGO` | Algorithm selector | `Repitch`, `Stretch`, `Bungee` |
 | `TONAL` | Tonality limit (Stretch only) | `0` to `8000` Hz |
@@ -99,7 +100,7 @@ xattr -cr /Applications/INTERSECT.app
 | `LOAD` | Open file chooser | Replaces current sample |
 | `PANIC` | Kill active voices immediately | Also stops lazy chop |
 | `UNDO / REDO` | History navigation | Buttons in header |
-| `UI` | Theme and UI scale popup | Theme chooser and `+/- 0.25` scale |
+| `SET` | Theme, scale, and NRPN popup | Theme chooser, `+/- 0.25` scale, and NRPN settings |
 | Sample info text | Load/relink shortcut | Click sample name area to load; missing file text opens relink dialog |
 
 ### Slice Control Bar (selected slice)
@@ -178,6 +179,44 @@ Requires a selected slice before opening.
 
 Single-letter action shortcuts are intentionally unbound so DAW keyboard-MIDI note entry remains available.
 
+## MIDI Controller Routing (NRPN)
+
+INTERSECT supports NRPN-based slice editing from a hardware or software MIDI controller. Enable it via the **SET** button in the header bar — the popup contains an NRPN section with channel and consume options.
+
+**Controller requirements:** The controller must support NRPN mode with configurable MSB/LSB address values, and must send **relative** data bytes — CC 96 (Data Increment) and CC 97 (Data Decrement) — rather than absolute CC 6 (Data Entry). Most dedicated encoder-style controllers (e.g. Korg nanoKONTROL in NRPN mode, MIDI Fighter Twister) support this. Simple knob controllers that only send CC 6 absolute values will not work.
+
+Select the slice to edit by enabling **FM** (Follow MIDI) and playing its MIDI note. Then use the start/end knobs to adjust the slice boundaries. Commit happens automatically ~300ms after the knob stops moving — the same feel as releasing a parameter slider. Zoom in for finer control; each knob step moves `viewWidth / 16383` samples.
+
+### NRPN Parameter Table
+
+NRPN numbers use CC 99 (MSB address) / CC 98 (LSB address) to select the parameter, then CC 96 (Data Increment) or CC 97 (Data Decrement) to send a ±1 step. No absolute-value data bytes (CC 6/38) are used.
+
+When programming a hardware controller, set the knob to **NRPN mode** with **MSB 64** and the LSB from the table below.
+
+| NRPN | MSB | LSB | Name | Direction | Notes |
+| --- | --- | --- | --- | --- | --- |
+| 8193 | 64 | 1 | Zoom | CC 96 / CC 97 | Zoom in / out |
+| 8194 | 64 | 2 | Slice start | CC 96 / CC 97 | Each step = viewWidth / 16383 samples |
+| 8195 | 64 | 3 | Slice end | CC 96 / CC 97 | Each step = viewWidth / 16383 samples |
+
+### SET Button — NRPN Settings
+
+Open with the **SET** button in the header bar.
+
+| Control | Function |
+| --- | --- |
+| `NRPN` | Enable/disable NRPN slice editing |
+| `CONSUME CCs` | Strip NRPN edit CCs from MIDI output so they don't reach downstream instruments |
+| `CH −` / `CH +` | MIDI channel filter (0 = omni) |
+
+Settings are saved to the INTERSECT settings file alongside theme and UI scale.
+
+### DAW-specific notes
+
+**Ableton Live:** NRPN control does not work in Ableton Live. Ableton intercepts the CC 96/97 data-increment bytes before they reach the plugin, so the plugin only ever sees the address bytes (CC 98/99) and can never fire an event. This is an Ableton routing limitation with no known workaround on the plugin side.
+
+**REAPER / Bitwig:** Route a MIDI track to the plugin instance as normal. No additional configuration is needed; all CC messages are forwarded to the plugin.
+
 ## Theme Customization
 
 INTERSECT supports custom `.intersectstyle` themes. On first launch it creates default `dark.intersectstyle` and `light.intersectstyle` in the user theme directory.
@@ -194,9 +233,9 @@ Create a custom theme:
 2. Set a unique `name:` value (used in the UI theme list).
 3. Edit colors as 6-digit hex `RRGGBB`.
 4. Place the file in your user theme folder.
-5. Restart the plugin, then use the **UI** button in the header to select the theme.
+5. Restart the plugin, then use the **SET** button in the header to select the theme.
 
-The **UI** button popup also controls interface scale (`0.5x` to `3.0x` in `0.25` steps).
+The **SET** button popup also controls interface scale (`0.5x` to `3.0x` in `0.25` steps).
 
 ## Build from Source
 

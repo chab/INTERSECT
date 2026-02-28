@@ -15,8 +15,8 @@ ActionPanel::ActionPanel (IntersectProcessor& p, WaveformView& wv)
     addAndMakeVisible (snapBtn);
     addAndMakeVisible (midiSelectBtn);
 
-    // Style all buttons to match M button color scheme
-    for (auto* btn : { &addSliceBtn, &lazyChopBtn, &dupBtn, &splitBtn, &deleteBtn, &snapBtn, &midiSelectBtn })
+    for (auto* btn : { &addSliceBtn, &lazyChopBtn, &dupBtn, &splitBtn, &deleteBtn,
+                       &snapBtn, &midiSelectBtn })
     {
         btn->setColour (juce::TextButton::buttonColourId, getTheme().button);
         btn->setColour (juce::TextButton::textColourOnId, getTheme().foreground);
@@ -73,7 +73,7 @@ void ActionPanel::triggerDuplicateSlice()
 {
     IntersectProcessor::Command cmd;
     cmd.type = IntersectProcessor::CmdDuplicateSlice;
-    cmd.intParam1 = -1;   // -1 = keep source position (existing behavior)
+    cmd.intParam1 = -1;
     processor.pushCommand (cmd);
     repaint();
 }
@@ -112,8 +112,7 @@ void ActionPanel::triggerDeleteSelectedSlice()
 
 void ActionPanel::toggleSnapToZeroCrossing()
 {
-    const bool current = processor.snapToZeroCrossing.load();
-    const bool newState = ! current;
+    const bool newState = ! processor.snapToZeroCrossing.load();
     processor.snapToZeroCrossing.store (newState);
     updateSnapButtonAppearance (newState);
     repaint();
@@ -121,8 +120,7 @@ void ActionPanel::toggleSnapToZeroCrossing()
 
 void ActionPanel::toggleFollowMidiSelection()
 {
-    const bool current = processor.midiSelectsSlice.load();
-    const bool newState = ! current;
+    const bool newState = ! processor.midiSelectsSlice.load();
     processor.midiSelectsSlice.store (newState);
     updateMidiButtonAppearance (newState);
     repaint();
@@ -154,27 +152,28 @@ void ActionPanel::toggleAutoChop()
 
 void ActionPanel::resized()
 {
-    int gap = 6;
-    int btnH = getHeight();
-    int narrowW = 30;  // ZX and FM buttons
-    int narrowTotal = narrowW * 2 + gap;  // ZX + FM + gap between them
-    int availW = getWidth() - narrowTotal - gap;
-    int numBtns = 5;
-    int totalGap = gap * (numBtns - 1);
-    int btnW = (availW - totalGap) / numBtns;
+    const int gap       = 6;
+    const int btnH      = getHeight();
+    const int snapW     = 30;
+    const int midiW     = 30;
+    const int utilityTotal = snapW + midiW + gap;
+    const int availW    = getWidth() - utilityTotal - gap;
+    const int numBtns   = 5;
+    const int totalGap  = gap * (numBtns - 1);
+    const int btnW      = (availW - totalGap) / numBtns;
 
-    addSliceBtn.setBounds (0, 0, btnW, btnH);
-    lazyChopBtn.setBounds (btnW + gap, 0, btnW, btnH);
-    splitBtn.setBounds (2 * (btnW + gap), 0, btnW, btnH);
-    dupBtn.setBounds (3 * (btnW + gap), 0, btnW, btnH);
-    deleteBtn.setBounds (4 * (btnW + gap), 0, btnW, btnH);
-    midiSelectBtn.setBounds (getWidth() - narrowW, 0, narrowW, btnH);
-    snapBtn.setBounds (getWidth() - narrowW - gap - narrowW, 0, narrowW, btnH);
+    addSliceBtn.setBounds (0,                0, btnW, btnH);
+    lazyChopBtn.setBounds (btnW + gap,       0, btnW, btnH);
+    splitBtn.setBounds    (2 * (btnW + gap), 0, btnW, btnH);
+    dupBtn.setBounds      (3 * (btnW + gap), 0, btnW, btnH);
+    deleteBtn.setBounds   (4 * (btnW + gap), 0, btnW, btnH);
+
+    midiSelectBtn.setBounds (getWidth() - midiW,            0, midiW, btnH);
+    snapBtn.setBounds       (getWidth() - midiW - gap - snapW, 0, snapW, btnH);
 }
 
 void ActionPanel::paint (juce::Graphics& g)
 {
-    // Re-theme all buttons so theme changes take effect
     for (auto* btn : { &addSliceBtn, &lazyChopBtn, &dupBtn, &splitBtn, &deleteBtn })
     {
         btn->setColour (juce::TextButton::buttonColourId, getTheme().button);
@@ -182,18 +181,15 @@ void ActionPanel::paint (juce::Graphics& g)
         btn->setColour (juce::TextButton::textColourOffId, getTheme().foreground);
     }
 
-    // Sync toggle button appearances
     updateMidiButtonAppearance (processor.midiSelectsSlice.load());
     updateSnapButtonAppearance (processor.snapToZeroCrossing.load());
 
-    // Highlight +SLC if in draw mode
     if (waveformView.isSliceDrawModeActive())
     {
         g.setColour (getTheme().accent.withAlpha (0.25f));
         g.fillRect (addSliceBtn.getBounds());
     }
 
-    // Highlight LZY if active
     if (processor.lazyChop.isActive())
     {
         lazyChopBtn.setButtonText ("STOP");
@@ -210,15 +206,15 @@ void ActionPanel::updateMidiButtonAppearance (bool active)
 {
     if (active)
     {
-        midiSelectBtn.setColour (juce::TextButton::textColourOnId, getTheme().accent);
+        midiSelectBtn.setColour (juce::TextButton::textColourOnId,  getTheme().accent);
         midiSelectBtn.setColour (juce::TextButton::textColourOffId, getTheme().accent);
-        midiSelectBtn.setColour (juce::TextButton::buttonColourId, getTheme().accent.withAlpha (0.2f));
+        midiSelectBtn.setColour (juce::TextButton::buttonColourId,  getTheme().accent.withAlpha (0.2f));
     }
     else
     {
-        midiSelectBtn.setColour (juce::TextButton::textColourOnId, getTheme().foreground);
+        midiSelectBtn.setColour (juce::TextButton::textColourOnId,  getTheme().foreground);
         midiSelectBtn.setColour (juce::TextButton::textColourOffId, getTheme().foreground);
-        midiSelectBtn.setColour (juce::TextButton::buttonColourId, getTheme().button);
+        midiSelectBtn.setColour (juce::TextButton::buttonColourId,  getTheme().button);
     }
 }
 
@@ -226,14 +222,14 @@ void ActionPanel::updateSnapButtonAppearance (bool active)
 {
     if (active)
     {
-        snapBtn.setColour (juce::TextButton::textColourOnId, getTheme().accent);
+        snapBtn.setColour (juce::TextButton::textColourOnId,  getTheme().accent);
         snapBtn.setColour (juce::TextButton::textColourOffId, getTheme().accent);
-        snapBtn.setColour (juce::TextButton::buttonColourId, getTheme().accent.withAlpha (0.2f));
+        snapBtn.setColour (juce::TextButton::buttonColourId,  getTheme().accent.withAlpha (0.2f));
     }
     else
     {
-        snapBtn.setColour (juce::TextButton::textColourOnId, getTheme().foreground);
+        snapBtn.setColour (juce::TextButton::textColourOnId,  getTheme().foreground);
         snapBtn.setColour (juce::TextButton::textColourOffId, getTheme().foreground);
-        snapBtn.setColour (juce::TextButton::buttonColourId, getTheme().button);
+        snapBtn.setColour (juce::TextButton::buttonColourId,  getTheme().button);
     }
 }
