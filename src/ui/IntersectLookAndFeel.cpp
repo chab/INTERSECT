@@ -27,7 +27,7 @@ juce::Font IntersectLookAndFeel::makeFont (float pointSize, bool bold)
 {
     auto tf = bold ? sBoldTypeface : sRegularTypeface;
     if (tf != nullptr)
-        return juce::Font (juce::FontOptions().withTypeface (tf).withPointHeight (pointSize));
+        return juce::Font (juce::FontOptions (tf).withPointHeight (pointSize));
     return juce::Font (juce::FontOptions().withHeight (pointSize));
 }
 

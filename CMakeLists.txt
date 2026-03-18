@@ -1,5 +1,24 @@
 cmake_minimum_required(VERSION 3.22)
-set(INTERSECT_VERSION "0.0.0" CACHE STRING "Plugin version (injected by CI)")
+set(INTERSECT_VERSION "" CACHE STRING "Plugin version (injected by CI, or auto-detected from git tag)")
+if(INTERSECT_VERSION STREQUAL "")
+    find_package(Git QUIET)
+    if(Git_FOUND OR GIT_FOUND)
+        execute_process(
+            COMMAND "${GIT_EXECUTABLE}" describe --tags --match "v*" --abbrev=0
+            WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+            OUTPUT_VARIABLE _git_tag
+            ERROR_QUIET
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+        )
+        string(REGEX REPLACE "^v" "" _git_version "${_git_tag}")
+        if(_git_version STREQUAL "")
+            set(_git_version "0.0.0")
+        endif()
+    else()
+        set(_git_version "0.0.0")
+    endif()
+    set(INTERSECT_VERSION "${_git_version}")
+endif()
 project(Intersect)
 
 set(CMAKE_CXX_STANDARD 20)
