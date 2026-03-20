@@ -9,7 +9,7 @@ SliceLane::SliceLane (IntersectProcessor& p) : processor (p) {}
 
 void SliceLane::paint (juce::Graphics& g)
 {
-    g.fillAll (getTheme().waveformBg);
+    g.fillAll (getTheme().surface0);
 
     auto sampleSnap = processor.sampleData.getSnapshot();
     int numFrames = sampleSnap ? sampleSnap->buffer.getNumSamples() : 0;
@@ -123,7 +123,7 @@ void SliceLane::paint (juce::Graphics& g)
             }
             if (labelX + labelW < w)
             {
-                g.setColour (si.selected ? getTheme().foreground.withAlpha (0.9f) : si.col.withAlpha (0.7f));
+                g.setColour (si.selected ? getTheme().text2.withAlpha (0.9f) : si.col.withAlpha (0.7f));
                 g.drawText (label, labelX, 0, labelW, h, juce::Justification::centredLeft);
                 if (labelEndCount < SliceManager::kMaxSlices)
                     labelEnds[(size_t) labelEndCount++] = labelX + labelW;
@@ -131,7 +131,7 @@ void SliceLane::paint (juce::Graphics& g)
         }
     }
 
-    g.setColour (getTheme().moduleBorder.withAlpha (0.8f));
+    g.setColour (getTheme().surface3.withAlpha (0.8f));
     g.drawHorizontalLine (h - 1, 0.0f, (float) w);
 }
 

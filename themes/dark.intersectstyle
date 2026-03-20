@@ -12,57 +12,26 @@
 
 name: dark
 
-# Main surfaces
-background: 0a0a0e          # window background
-waveformBg: 060608          # waveform area background
-darkBar: 0e0e13             # slice control bar / action panel background
-header: 0d0d14              # header bar background
+surface0: 060608    # deepest (waveform pit)
+surface1: 0a0a0e    # base background
+surface2: 0e0e13    # raised panels
+surface3: 181c24    # borders
+surface4: 23232d    # recessed controls
+surface5: 2a3040    # hover / separator
 
-# Text & lines
-foreground: ccd0d8          # primary text colour
-gridLine: 23232d            # waveform grid lines
-separator: 33333f           # horizontal separator lines
+text0: 506070       # muted / inactive
+text1: 7888a0       # body / secondary
+text2: ccd0d8       # primary
 
-# Waveform & slices
-waveform: b2c6d8            # waveform draw colour
-selectionOverlay: 3f598c    # selected slice translucent overlay
+waveform: b2c6d8    # audio waveform rendering
+accent: 3fd8d8      # main accent + selection + active tabs
 
-# Controls
-accent: 3fd8d8              # accent colour (labels, highlights)
-lockActive: e55938          # locked/overridden parameter indicator
-lockInactive: 4c4c56        # unlocked/inherited parameter indicator
-button: 1c2028              # button background
-buttonHover: 2a3040         # button hover background
+color1: 4a7098      # playback module
+color2: 98783a      # filter module
+color3: 4a7858      # amp module
+color4: 685090      # output module
+color5: cc4444      # alert / warning
 
-# Signal chain bar
-module_name_playback: 4a7098  # playback module header colour
-module_name_filter: 98783a    # filter module header colour
-module_name_amp: 4a7858       # amp module header colour
-module_name_output: 685090    # output module header colour
-tab_global_active: 4878a0     # global tab active colour
-tab_slice_active: a880c8      # slice tab active colour
-override_bar: b84830          # override indicator bar
-override_bar_hover: d86050    # override indicator bar hover
-override_label: a04030        # overridden parameter label
-override_value: c0c8d0        # overridden parameter value
-override_count: 904030        # override count text
-filter_toggle_on: 806838      # filter enabled toggle colour
-set_bpm_text: 3fd8d8          # SET BPM button text
-set_bpm_border: 183028        # SET BPM button border
-param_label: 384048           # parameter label text
-param_value: 7888a0           # parameter value text
-param_value_on: 3fd8d8        # boolean parameter ON colour
-param_value_off: 181c24       # boolean parameter OFF colour
-context_bar_bg: 0a0b10        # context bar background
-signal_chain_bg: 0a0c10       # signal chain background
-module_border: 161a20         # module separator border
-context_text: 586070          # context primary text
-context_dim_text: 404858      # context secondary text
-tab_inactive: 384050          # inactive tab text
-lazy_chop_overlay: cc4444     # lazy chop preview overlay
-preview_cursor: cc4444        # preview cursor
-
-# Slice palette (colours assigned to new slices)
 slice1: 4d8c99               # Cold Teal
 slice2: 8c4747               # Muted Red
 slice3: 4d8059               # Dark Green

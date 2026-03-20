@@ -22,7 +22,7 @@ float IntersectLookAndFeel::sMenuScale = 1.0f;
 
 IntersectLookAndFeel::IntersectLookAndFeel()
 {
-    setColour (juce::ResizableWindow::backgroundColourId, getTheme().background);
+    setColour (juce::ResizableWindow::backgroundColourId, getTheme().surface1);
 
     regularTypeface = juce::Typeface::createSystemTypefaceFor (
         BinaryData::Inter_24ptRegular_ttf, BinaryData::Inter_24ptRegular_ttfSize);
@@ -84,7 +84,7 @@ void IntersectLookAndFeel::drawButtonBackground (juce::Graphics& g, juce::Button
 {
     auto bounds = button.getLocalBounds().toFloat();
     const auto baseFill = button.findColour (juce::TextButton::buttonColourId).isTransparent()
-        ? getTheme().button
+        ? getTheme().surface4
         : button.findColour (juce::TextButton::buttonColourId);
     const auto textColour = button.findColour (button.getToggleState()
         ? juce::TextButton::textColourOnId
@@ -113,7 +113,7 @@ void IntersectLookAndFeel::drawButtonText (juce::Graphics& g, juce::TextButton& 
     auto textCol = button.findColour (button.getToggleState()
                                        ? juce::TextButton::textColourOnId
                                        : juce::TextButton::textColourOffId);
-    g.setColour (textCol.isTransparent() ? getTheme().foreground : textCol);
+    g.setColour (textCol.isTransparent() ? getTheme().text2 : textCol);
     auto font = fitFontToWidth (button.getButtonText(),
                                 juce::jlimit (8.5f, 11.0f, button.getHeight() * 0.44f),
                                 7.0f,
@@ -126,8 +126,8 @@ void IntersectLookAndFeel::drawButtonText (juce::Graphics& g, juce::TextButton& 
 
 void IntersectLookAndFeel::drawPopupMenuBackground (juce::Graphics& g, int width, int height)
 {
-    g.fillAll (getTheme().darkBar.brighter (0.04f));
-    g.setColour (getTheme().separator.brighter (0.1f));
+    g.fillAll (getTheme().surface2.brighter (0.04f));
+    g.setColour (getTheme().surface5.brighter (0.1f));
     g.drawRoundedRectangle (0.5f, 0.5f, (float) width - 1.0f, (float) height - 1.0f, 4.0f, 1.0f);
 }
 
@@ -139,19 +139,19 @@ void IntersectLookAndFeel::drawPopupMenuItem (juce::Graphics& g, const juce::Rec
 {
     if (isSeparator)
     {
-        g.setColour (getTheme().separator);
+        g.setColour (getTheme().surface5);
         g.fillRect (area.reduced (4, 0).withHeight (1).withY (area.getCentreY()));
         return;
     }
 
     if (isHighlighted && isActive)
     {
-        g.setColour (getTheme().buttonHover.brighter (0.08f));
+        g.setColour (getTheme().surface5.brighter (0.08f));
         g.fillRoundedRectangle (area.reduced (3, 1).toFloat(), 3.0f);
     }
 
     g.setColour (isTicked ? getTheme().accent
-                          : (isActive ? getTheme().foreground : getTheme().foreground.withAlpha (0.4f)));
+                          : (isActive ? getTheme().text2 : getTheme().text2.withAlpha (0.4f)));
     g.setFont (getPopupMenuFont());
     g.drawText (text, area.reduced ((int) (10 * sMenuScale), 0), juce::Justification::centredLeft);
 }
@@ -161,7 +161,7 @@ void IntersectLookAndFeel::drawPopupMenuSectionHeader (juce::Graphics& g,
                                                         const juce::String& sectionName)
 {
     g.setFont (getPopupMenuFont().boldened());
-    g.setColour (getTheme().foreground);
+    g.setColour (getTheme().text2);
     g.drawFittedText (sectionName,
                       area.getX() + (int) (12 * sMenuScale), area.getY(),
                       area.getWidth() - (int) (16 * sMenuScale),
@@ -176,10 +176,10 @@ juce::Font IntersectLookAndFeel::getPopupMenuFont()
 
 void IntersectLookAndFeel::drawTooltip (juce::Graphics& g, const juce::String& text, int width, int height)
 {
-    g.fillAll (getTheme().darkBar.brighter (0.1f));
-    g.setColour (getTheme().separator);
+    g.fillAll (getTheme().surface2.brighter (0.1f));
+    g.setColour (getTheme().surface5);
     g.drawRect (0, 0, width, height, 1);
-    g.setColour (getTheme().foreground);
+    g.setColour (getTheme().text2);
     g.setFont (makeFont (14.0f));
     g.drawText (text, 4, 0, width - 8, height, juce::Justification::centredLeft);
 }

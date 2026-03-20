@@ -23,12 +23,12 @@ void SliceControlBar::drawLockIcon (juce::Graphics& g, int x, int y, bool locked
 {
     if (locked)
     {
-        g.setColour (getTheme().lockActive);
+        g.setColour (getTheme().color5);
         g.fillRect (x, y, 10, 10);
     }
     else
     {
-        g.setColour (getTheme().lockInactive.withAlpha (0.6f));
+        g.setColour (getTheme().text0.withAlpha (0.6f));
         g.drawRect (x, y, 10, 10, 1);
     }
 }
@@ -45,14 +45,14 @@ void SliceControlBar::drawParamCell (juce::Graphics& g, int x, int y,
 
     // Label
     g.setFont (IntersectLookAndFeel::makeFont (12.0f));
-    g.setColour (locked ? getTheme().lockActive.withAlpha (0.8f)
-                        : getTheme().foreground.withAlpha (0.45f));
+    g.setColour (locked ? getTheme().color5.withAlpha (0.8f)
+                        : getTheme().text2.withAlpha (0.45f));
     g.drawText (label, x + kParamCellTextX, y + 2, textW, 13, juce::Justification::centredLeft);
 
     // Value
     g.setFont (IntersectLookAndFeel::makeFont (14.0f));
-    g.setColour (locked ? getTheme().foreground
-                        : getTheme().foreground.withAlpha (0.4f));
+    g.setColour (locked ? getTheme().text2
+                        : getTheme().text2.withAlpha (0.4f));
     g.drawText (value, x + kParamCellTextX, y + 15, textW, 14, juce::Justification::centredLeft);
 
     // Lock icon
@@ -65,7 +65,7 @@ void SliceControlBar::drawParamCell (juce::Graphics& g, int x, int y,
 
 void SliceControlBar::paint (juce::Graphics& g)
 {
-    g.fillAll (getTheme().darkBar);
+    g.fillAll (getTheme().surface2);
     cells.clear();
 
     const auto& ui = processor.getUiSliceSnapshot();
@@ -87,28 +87,28 @@ void SliceControlBar::paint (juce::Graphics& g)
 
         g.setFont (IntersectLookAndFeel::makeFont (12.0f));
         g.setColour (editable ? getTheme().accent.withAlpha (0.7f)
-                              : getTheme().foreground.withAlpha (0.35f));
+                              : getTheme().text2.withAlpha (0.35f));
         g.drawText ("ROOT", rnX, row2y + 2, rnW, 13, juce::Justification::right);
         g.setFont (IntersectLookAndFeel::makeFont (14.0f));
-        g.setColour (editable ? getTheme().foreground.withAlpha (0.6f)
-                              : getTheme().foreground.withAlpha (0.4f));
+        g.setColour (editable ? getTheme().text2.withAlpha (0.6f)
+                              : getTheme().text2.withAlpha (0.4f));
         g.drawText (juce::String (rn), rnX, row2y + 15, rnW, 14, juce::Justification::right);
 
         // SLICES count (Row 2, left of ROOT, right-aligned)
         int slcW = 55;
         int slcX = rnX - slcW - 4;
         g.setFont (IntersectLookAndFeel::makeFont (12.0f));
-        g.setColour (getTheme().foreground.withAlpha (0.35f));
+        g.setColour (getTheme().text2.withAlpha (0.35f));
         g.drawText ("SLICES", slcX, row2y + 2, slcW, 13, juce::Justification::right);
         g.setFont (IntersectLookAndFeel::makeFont (14.0f));
-        g.setColour (getTheme().foreground.withAlpha (0.4f));
+        g.setColour (getTheme().text2.withAlpha (0.4f));
         g.drawText (juce::String (numSlices), slcX, row2y + 15, slcW, 14, juce::Justification::right);
     }
 
     if (idx < 0 || idx >= numSlices)
     {
         g.setFont (IntersectLookAndFeel::makeFont (15.0f));
-        g.setColour (getTheme().foreground.withAlpha (0.35f));
+        g.setColour (getTheme().text2.withAlpha (0.35f));
         g.drawText ("No slice selected", 8, 24, 220, 18, juce::Justification::centredLeft);
         return;
     }
@@ -143,7 +143,7 @@ void SliceControlBar::paint (juce::Graphics& g)
         g.drawText (sliceLabel, 8, row1y + 2, infoW, 13, juce::Justification::right);
 
         g.setFont (IntersectLookAndFeel::makeFont (14.0f));
-        g.setColour (getTheme().foreground.withAlpha (0.5f));
+        g.setColour (getTheme().text2.withAlpha (0.5f));
         double srate = processor.getSampleRate();
         if (srate <= 0) srate = 44100.0;
         double lenSec = (s.endSample - s.startSample) / srate;
@@ -283,7 +283,7 @@ void SliceControlBar::paint (juce::Graphics& g)
     }
 
     // ====== Separator line ======
-    g.setColour (getTheme().separator);
+    g.setColour (getTheme().surface5);
     g.drawHorizontalLine (34, 8.0f, (float) getWidth() - 8.0f);
 
     // ====== Row 2 (y=36): ATK | DEC | SUS | REL | TAIL | REV | PP | MUTE | STRETCH | GAIN | OUT | MIDI ======
@@ -358,10 +358,10 @@ void SliceControlBar::paint (juce::Graphics& g)
 
     // MIDI note (not lockable)
     g.setFont (IntersectLookAndFeel::makeFont (12.0f));
-    g.setColour (getTheme().foreground.withAlpha (0.5f));
+    g.setColour (getTheme().text2.withAlpha (0.5f));
     g.drawText ("MIDI", x + 2, row2y + 2, 45, 13, juce::Justification::centredLeft);
     g.setFont (IntersectLookAndFeel::makeFont (14.0f));
-    g.setColour (getTheme().foreground.withAlpha (0.8f));
+    g.setColour (getTheme().text2.withAlpha (0.8f));
     g.drawText (juce::String (s.midiNote), x + 2, row2y + 15, 45, 14, juce::Justification::centredLeft);
     cells.push_back ({ x, row2y, 45, 32, 0, F::FieldMidiNote, 0.0f, 127.0f, 1.0f, false, false, false, false });
     x += 49;
@@ -671,8 +671,8 @@ void SliceControlBar::mouseDoubleClick (const juce::MouseEvent& e)
         textEditor->setBounds (rootNoteArea.getX(), rootNoteArea.getY() + 15,
                                rootNoteArea.getWidth(), 16);
         textEditor->setFont (IntersectLookAndFeel::makeFont (14.0f));
-        textEditor->setColour (juce::TextEditor::backgroundColourId, getTheme().darkBar.brighter (0.15f));
-        textEditor->setColour (juce::TextEditor::textColourId, getTheme().foreground);
+        textEditor->setColour (juce::TextEditor::backgroundColourId, getTheme().surface2.brighter (0.15f));
+        textEditor->setColour (juce::TextEditor::textColourId, getTheme().text2);
         textEditor->setColour (juce::TextEditor::outlineColourId, getTheme().accent);
         textEditor->setText (juce::String (ui.rootNote), false);
         textEditor->selectAll();
@@ -791,8 +791,8 @@ void SliceControlBar::showTextEditor (const ParamCell& cell, float currentValue)
     addAndMakeVisible (*textEditor);
     textEditor->setBounds (cell.x + 14, cell.y + 14, cell.w - 16, 16);
     textEditor->setFont (IntersectLookAndFeel::makeFont (14.0f));
-    textEditor->setColour (juce::TextEditor::backgroundColourId, getTheme().darkBar.brighter (0.15f));
-    textEditor->setColour (juce::TextEditor::textColourId, getTheme().foreground);
+    textEditor->setColour (juce::TextEditor::backgroundColourId, getTheme().surface2.brighter (0.15f));
+    textEditor->setColour (juce::TextEditor::textColourId, getTheme().text2);
     textEditor->setColour (juce::TextEditor::outlineColourId, getTheme().accent);
 
     // Display value

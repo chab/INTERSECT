@@ -9,57 +9,26 @@
 
 name: rose-pine
 
-# Main surfaces
-background: 191724          # window background
-waveformBg: 1f1d2e          # waveform area background
-darkBar: 191724             # slice control bar / action panel background
-header: 191724              # header bar background
+surface0: 1f1d2e    # waveform area
+surface1: 15131e    # base background
+surface2: 191724    # raised panels
+surface3: 26233a    # borders
+surface4: 1f1d2e    # recessed controls
+surface5: 26233a    # hover / separator
 
-# Text & lines
-foreground: e0def4          # primary text colour
-gridLine: 403d52            # waveform grid lines
-separator: 6e6a86           # horizontal separator lines
+text0: 6e6a86       # muted / inactive
+text1: 908caa       # body / secondary
+text2: e0def4       # primary
 
-# Waveform & slices
-waveform: 9ccfd8            # waveform draw colour
-selectionOverlay: c4a7e7    # selected slice translucent overlay
+waveform: 9ccfd8    # audio waveform rendering
+accent: ebbcba      # main accent + selection + active tabs
 
-# Controls
-accent: ebbcba              # accent colour (labels, highlights)
-lockActive: eb6f92          # locked/overridden parameter indicator
-lockInactive: 6e6a86        # unlocked/inherited parameter indicator
-button: 1f1d2e              # button background
-buttonHover: 26233a         # button hover background
+color1: 31748f      # playback module
+color2: f6c177      # filter module
+color3: 9ccfd8      # amp module
+color4: c4a7e7      # output module
+color5: eb6f92      # alert / warning
 
-# Signal chain bar
-module_name_playback: 31748f  # playback module header colour
-module_name_filter: f6c177    # filter module header colour
-module_name_amp: 9ccfd8       # amp module header colour
-module_name_output: c4a7e7    # output module header colour
-tab_global_active: 56949f     # global tab active colour
-tab_slice_active: c4a7e7      # slice tab active colour
-override_bar: eb6f92          # override indicator bar
-override_bar_hover: f09aaf    # override indicator bar hover
-override_label: b4637a        # overridden parameter label
-override_value: e0def4        # overridden parameter value
-override_count: b4637a        # override count text
-filter_toggle_on: f6c177      # filter enabled toggle colour
-set_bpm_text: ebbcba          # SET BPM button text
-set_bpm_border: 6e6a86        # SET BPM button border
-param_label: 6e6a86           # parameter label text
-param_value: 908caa           # parameter value text
-param_value_on: ebbcba        # boolean parameter ON colour
-param_value_off: 21202e       # boolean parameter OFF colour
-context_bar_bg: 15131e        # context bar background
-signal_chain_bg: 171520       # signal chain background
-module_border: 26233a         # module separator border
-context_text: 908caa          # context primary text
-context_dim_text: 6e6a86      # context secondary text
-tab_inactive: 6e6a86          # inactive tab text
-lazy_chop_overlay: eb6f92     # lazy chop preview overlay
-preview_cursor: eb6f92        # preview cursor
-
-# Slice palette (colours assigned to new slices)
 slice1: 31748f               # Pine
 slice2: eb6f92               # Love
 slice3: f6c177               # Gold

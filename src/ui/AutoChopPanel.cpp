@@ -19,26 +19,26 @@ AutoChopPanel::AutoChopPanel (IntersectProcessor& p, WaveformView& wv)
     sensitivitySlider.setSliderStyle (juce::Slider::LinearHorizontal);
     sensitivitySlider.setTextBoxStyle (juce::Slider::TextBoxRight, false, 32, 20);
     sensitivitySlider.setColour (juce::Slider::trackColourId, getTheme().accent);
-    sensitivitySlider.setColour (juce::Slider::thumbColourId, getTheme().foreground);
-    sensitivitySlider.setColour (juce::Slider::backgroundColourId, getTheme().darkBar);
-    sensitivitySlider.setColour (juce::Slider::textBoxTextColourId, getTheme().foreground);
-    sensitivitySlider.setColour (juce::Slider::textBoxBackgroundColourId, getTheme().darkBar.brighter (0.15f));
-    sensitivitySlider.setColour (juce::Slider::textBoxOutlineColourId, getTheme().separator);
+    sensitivitySlider.setColour (juce::Slider::thumbColourId, getTheme().text2);
+    sensitivitySlider.setColour (juce::Slider::backgroundColourId, getTheme().surface2);
+    sensitivitySlider.setColour (juce::Slider::textBoxTextColourId, getTheme().text2);
+    sensitivitySlider.setColour (juce::Slider::textBoxBackgroundColourId, getTheme().surface2.brighter (0.15f));
+    sensitivitySlider.setColour (juce::Slider::textBoxOutlineColourId, getTheme().surface5);
 
     sensitivitySlider.onValueChange = [this] { updatePreview(); };
 
     divisionsEditor.setText ("16");
-    divisionsEditor.setColour (juce::TextEditor::backgroundColourId, getTheme().darkBar.brighter (0.15f));
-    divisionsEditor.setColour (juce::TextEditor::textColourId, getTheme().foreground);
-    divisionsEditor.setColour (juce::TextEditor::outlineColourId, getTheme().separator);
+    divisionsEditor.setColour (juce::TextEditor::backgroundColourId, getTheme().surface2.brighter (0.15f));
+    divisionsEditor.setColour (juce::TextEditor::textColourId, getTheme().text2);
+    divisionsEditor.setColour (juce::TextEditor::outlineColourId, getTheme().surface5);
     divisionsEditor.setFont (IntersectLookAndFeel::makeFont (13.0f));
     divisionsEditor.setJustification (juce::Justification::centred);
 
     for (auto* btn : { &splitEqualBtn, &detectBtn, &cancelBtn })
     {
-        btn->setColour (juce::TextButton::buttonColourId, getTheme().button);
-        btn->setColour (juce::TextButton::textColourOnId, getTheme().foreground);
-        btn->setColour (juce::TextButton::textColourOffId, getTheme().foreground);
+        btn->setColour (juce::TextButton::buttonColourId, getTheme().surface4);
+        btn->setColour (juce::TextButton::textColourOnId, getTheme().text2);
+        btn->setColour (juce::TextButton::textColourOffId, getTheme().text2);
     }
 
     splitEqualBtn.onClick = [this] {
@@ -93,15 +93,15 @@ AutoChopPanel::~AutoChopPanel()
 
 void AutoChopPanel::paint (juce::Graphics& g)
 {
-    g.setColour (getTheme().darkBar.withAlpha (0.95f));
+    g.setColour (getTheme().surface2.withAlpha (0.95f));
     g.fillRect (getLocalBounds());
 
-    g.setColour (getTheme().separator);
+    g.setColour (getTheme().surface5);
     g.drawRect (getLocalBounds(), 1);
 
     // Labels drawn inline before their controls
     g.setFont (IntersectLookAndFeel::makeFont (11.0f));
-    g.setColour (getTheme().foreground.withAlpha (0.6f));
+    g.setColour (getTheme().text2.withAlpha (0.6f));
     g.drawText ("SENS", 4, 0, 30, getHeight(), juce::Justification::centredLeft);
     g.drawText ("DIV", divisionsEditor.getX() - 26, 0, 24, getHeight(), juce::Justification::centredLeft);
 }

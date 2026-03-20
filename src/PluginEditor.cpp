@@ -75,7 +75,7 @@ IntersectEditor::~IntersectEditor()
 
 void IntersectEditor::paint (juce::Graphics& g)
 {
-    g.fillAll (getTheme().background);
+    g.fillAll (getTheme().surface1);
 }
 
 void IntersectEditor::resized()

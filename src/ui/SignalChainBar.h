@@ -107,6 +107,7 @@ private:
         const Slice* selectedSlice = nullptr;
         int numSlices = 0;
         int selectedSliceIndex = -1;
+        int rootNote = 36;
         int sampleNumFrames = 0;
         bool sampleLoaded = false;
         bool sampleMissing = false;
@@ -157,6 +158,7 @@ private:
 
     void showSetBpmPopup();
     void showTextEditor (const Cell& cell);
+    void showRootEditor();
 
     int countModuleOverrides (const ModuleLayout& module, uint32_t lockMask) const;
     int countEffectiveModuleOverrides (Module module, const Slice& slice, const GlobalParamSnapshot& globals) const;
@@ -177,10 +179,16 @@ private:
     juce::Rectangle<int> contextStatusBounds;
     juce::Rectangle<int> contextDot1Bounds;
     juce::Rectangle<int> contextDot2Bounds;
+    juce::Rectangle<int> contextSlicesBounds;
+    juce::Rectangle<int> contextRootBounds;
     juce::Rectangle<int> moduleStripBounds;
     juce::String contextTitle;
     juce::String contextSubtitle;
     juce::String contextStatus;
+
+    bool draggingRoot = false;
+    int rootDragStartY = 0;
+    float rootDragStartValue = 36.0f;
 
     std::vector<Cell> cells;
     std::array<ModuleLayout, 4> modules {};

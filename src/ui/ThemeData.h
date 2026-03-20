@@ -5,172 +5,97 @@ struct ThemeData
 {
     juce::String name;
 
-    juce::Colour background;
-    juce::Colour waveformBg;
-    juce::Colour darkBar;
-    juce::Colour foreground;
-    juce::Colour header;
-    juce::Colour waveform;
-    juce::Colour selectionOverlay;
-    juce::Colour lockActive;
-    juce::Colour lockInactive;
-    juce::Colour gridLine;
-    juce::Colour accent;
-    juce::Colour button;
-    juce::Colour buttonHover;
-    juce::Colour separator;
-    juce::Colour moduleNamePlayback;
-    juce::Colour moduleNameFilter;
-    juce::Colour moduleNameAmp;
-    juce::Colour moduleNameOutput;
-    juce::Colour tabGlobalActive;
-    juce::Colour tabSliceActive;
-    juce::Colour overrideBar;
-    juce::Colour overrideBarHover;
-    juce::Colour overrideLabel;
-    juce::Colour overrideValue;
-    juce::Colour overrideCount;
-    juce::Colour filterToggleOn;
-    juce::Colour setBpmText;
-    juce::Colour setBpmBorder;
-    juce::Colour paramLabel;
-    juce::Colour paramValue;
-    juce::Colour paramValueOn;
-    juce::Colour paramValueOff;
-    juce::Colour contextBarBg;
-    juce::Colour signalChainBg;
-    juce::Colour moduleBorder;
-    juce::Colour contextText;
-    juce::Colour contextDimText;
-    juce::Colour tabInactive;
-    juce::Colour lazyChopOverlay;
-    juce::Colour previewCursor;
+    // 6 surface levels (darkest → lightest in dark themes, reversed in light)
+    juce::Colour surface0, surface1, surface2, surface3, surface4, surface5;
 
+    // 3 text levels (muted → primary)
+    juce::Colour text0, text1, text2;
+
+    // Waveform + accent
+    juce::Colour waveform;
+    juce::Colour accent;
+
+    // 5 semantic colors
+    juce::Colour color1, color2, color3, color4, color5;
+
+    // Slice palette (unchanged)
     juce::Colour slicePalette[16];
 
     static ThemeData darkTheme()
     {
         ThemeData t;
-        t.name          = "dark";
-        t.background    = juce::Colour (0xFF08090C);
-        t.waveformBg    = juce::Colour (0xFF060710);
-        t.darkBar       = juce::Colour (0xFF0C0E12);
-        t.foreground    = juce::Colour (0xFF8090A0);
-        t.header        = juce::Colour (0xFF0C0E12);
-        t.waveform      = juce::Colour (0xFF6A7D90);
-        t.selectionOverlay = juce::Colour (0xFF486888);
-        t.lockActive    = juce::Colour (0xFFB84830);
-        t.lockInactive  = juce::Colour (0xFF2A3038);
-        t.gridLine      = juce::Colour (0xFF151A22);
-        t.accent        = juce::Colour (0xFF48C0A8);
-        t.button        = juce::Colour (0xFF0E1218);
-        t.buttonHover   = juce::Colour (0xFF101420);
-        t.separator     = juce::Colour (0xFF161A20);
-        t.moduleNamePlayback = juce::Colour (0xFF4A7098);
-        t.moduleNameFilter   = juce::Colour (0xFF98783A);
-        t.moduleNameAmp      = juce::Colour (0xFF4A7858);
-        t.moduleNameOutput   = juce::Colour (0xFF685090);
-        t.tabGlobalActive = juce::Colour (0xFF4878A0);
-        t.tabSliceActive  = juce::Colour (0xFFA880C8);
-        t.overrideBar     = juce::Colour (0xFFB84830);
-        t.overrideBarHover = juce::Colour (0xFFD86050);
-        t.overrideLabel   = juce::Colour (0xFFA04030);
-        t.overrideValue   = juce::Colour (0xFFC0C8D0);
-        t.overrideCount   = juce::Colour (0xFF904030);
-        t.filterToggleOn  = juce::Colour (0xFF806838);
-        t.setBpmText      = juce::Colour (0xFF48C0A8);
-        t.setBpmBorder    = juce::Colour (0xFF183028);
-        t.paramLabel      = juce::Colour (0xFF384048);
-        t.paramValue      = juce::Colour (0xFF7888A0);
-        t.paramValueOn    = juce::Colour (0xFF48C0A8);
-        t.paramValueOff   = juce::Colour (0xFF181C24);
-        t.contextBarBg    = juce::Colour (0xFF0A0B10);
-        t.signalChainBg   = juce::Colour (0xFF0A0C10);
-        t.moduleBorder    = juce::Colour (0xFF161A20);
-        t.contextText     = juce::Colour (0xFF586070);
-        t.contextDimText  = juce::Colour (0xFF404858);
-        t.tabInactive     = juce::Colour (0xFF384050);
-        t.lazyChopOverlay = juce::Colour (0xFFCC4444);
-        t.previewCursor   = juce::Colour (0xFFCC4444);
-        t.slicePalette[0]  = juce::Colour (0xFF4888B8);
-        t.slicePalette[1]  = juce::Colour (0xFFB85878);
-        t.slicePalette[2]  = juce::Colour (0xFF48A060);
-        t.slicePalette[3]  = juce::Colour (0xFF98884A);
-        t.slicePalette[4]  = juce::Colour (0xFFA880C8);
-        t.slicePalette[5]  = juce::Colour (0xFF58A098);
-        t.slicePalette[6]  = juce::Colour (0xFFA88058);
-        t.slicePalette[7]  = juce::Colour (0xFF708090);
-        t.slicePalette[8]  = juce::Colour (0xFF5A8EB8);
-        t.slicePalette[9]  = juce::Colour (0xFFAC6A7E);
-        t.slicePalette[10] = juce::Colour (0xFF4E9468);
-        t.slicePalette[11] = juce::Colour (0xFF9C8250);
-        t.slicePalette[12] = juce::Colour (0xFF9674B8);
-        t.slicePalette[13] = juce::Colour (0xFF5E9B96);
-        t.slicePalette[14] = juce::Colour (0xFF9A7A56);
-        t.slicePalette[15] = juce::Colour (0xFF6E7E90);
+        t.name     = "dark";
+        t.surface0 = juce::Colour (0xFF060608);
+        t.surface1 = juce::Colour (0xFF0a0a0e);
+        t.surface2 = juce::Colour (0xFF0e0e13);
+        t.surface3 = juce::Colour (0xFF181c24);
+        t.surface4 = juce::Colour (0xFF23232d);
+        t.surface5 = juce::Colour (0xFF2a3040);
+        t.text0    = juce::Colour (0xFF506070);
+        t.text1    = juce::Colour (0xFF7888a0);
+        t.text2    = juce::Colour (0xFFccd0d8);
+        t.waveform = juce::Colour (0xFFb2c6d8);
+        t.accent   = juce::Colour (0xFF3fd8d8);
+        t.color1   = juce::Colour (0xFF4a7098);
+        t.color2   = juce::Colour (0xFF98783a);
+        t.color3   = juce::Colour (0xFF4a7858);
+        t.color4   = juce::Colour (0xFF685090);
+        t.color5   = juce::Colour (0xFFcc4444);
+        t.slicePalette[0]  = juce::Colour (0xFF4d8c99);
+        t.slicePalette[1]  = juce::Colour (0xFF8c4747);
+        t.slicePalette[2]  = juce::Colour (0xFF4d8059);
+        t.slicePalette[3]  = juce::Colour (0xFF8c7340);
+        t.slicePalette[4]  = juce::Colour (0xFF664d8c);
+        t.slicePalette[5]  = juce::Colour (0xFF80804d);
+        t.slicePalette[6]  = juce::Colour (0xFF40808c);
+        t.slicePalette[7]  = juce::Colour (0xFF804d6b);
+        t.slicePalette[8]  = juce::Colour (0xFF597a47);
+        t.slicePalette[9]  = juce::Colour (0xFF80594d);
+        t.slicePalette[10] = juce::Colour (0xFF52598c);
+        t.slicePalette[11] = juce::Colour (0xFF737359);
+        t.slicePalette[12] = juce::Colour (0xFF6b4773);
+        t.slicePalette[13] = juce::Colour (0xFF477a6b);
+        t.slicePalette[14] = juce::Colour (0xFF7a5973);
+        t.slicePalette[15] = juce::Colour (0xFF617a66);
         return t;
     }
 
     static ThemeData lightTheme()
     {
         ThemeData t;
-        t.name          = "light";
-        t.background    = juce::Colour (0xFFF0F0F4);
-        t.waveformBg    = juce::Colour (0xFFFAFAFE);
-        t.darkBar       = juce::Colour (0xFFE8E8F0);
-        t.foreground    = juce::Colour (0xFF1A1A2E);
-        t.header    = juce::Colour (0xFFE0E0EC);
-        t.waveform = juce::Colour (0xFF2A4060);
-        t.selectionOverlay = juce::Colour (0xFF8090B8);
-        t.lockActive      = juce::Colour (0xFFCC4422);
-        t.lockInactive       = juce::Colour (0xFF9999A8);
-        t.gridLine      = juce::Colour (0xFFD8D8E0);
-        t.accent        = juce::Colour (0xFF1A8888);
-        t.button        = juce::Colour (0xFFD0D4DC);
-        t.buttonHover   = juce::Colour (0xFFBCC0CC);
-        t.separator     = juce::Colour (0xFFC0C0CC);
-        t.moduleNamePlayback = juce::Colour (0xFF4A7098);
-        t.moduleNameFilter   = juce::Colour (0xFF98783A);
-        t.moduleNameAmp      = juce::Colour (0xFF4A7858);
-        t.moduleNameOutput   = juce::Colour (0xFF685090);
-        t.tabGlobalActive = juce::Colour (0xFF4878A0);
-        t.tabSliceActive  = juce::Colour (0xFFA880C8);
-        t.overrideBar     = juce::Colour (0xFFB84830);
-        t.overrideBarHover = juce::Colour (0xFFD86050);
-        t.overrideLabel   = juce::Colour (0xFFA04030);
-        t.overrideValue   = juce::Colour (0xFFC0C8D0);
-        t.overrideCount   = juce::Colour (0xFF904030);
-        t.filterToggleOn  = juce::Colour (0xFF806838);
-        t.setBpmText      = juce::Colour (0xFF48C0A8);
-        t.setBpmBorder    = juce::Colour (0xFF183028);
-        t.paramLabel      = juce::Colour (0xFF384048);
-        t.paramValue      = juce::Colour (0xFF7888A0);
-        t.paramValueOn    = juce::Colour (0xFF48C0A8);
-        t.paramValueOff   = juce::Colour (0xFF181C24);
-        t.contextBarBg    = juce::Colour (0xFFE0E0EC);
-        t.signalChainBg   = juce::Colour (0xFF0A0C10);
-        t.moduleBorder    = juce::Colour (0xFF161A20);
-        t.contextText     = juce::Colour (0xFF5E6874);
-        t.contextDimText  = juce::Colour (0xFF7A8692);
-        t.tabInactive     = juce::Colour (0xFF7A8692);
-        t.lazyChopOverlay = juce::Colour (0xFFCC4444);
-        t.previewCursor   = juce::Colour (0xFFCC4444);
-        t.slicePalette[0]  = juce::Colour (0xFF5AABB8); // Cold Teal
-        t.slicePalette[1]  = juce::Colour (0xFFB85A5A); // Muted Red
-        t.slicePalette[2]  = juce::Colour (0xFF5AA66E); // Dark Green
-        t.slicePalette[3]  = juce::Colour (0xFFB89650); // Rust
-        t.slicePalette[4]  = juce::Colour (0xFF8066B8); // Dusk Violet
-        t.slicePalette[5]  = juce::Colour (0xFFA6A65A); // Olive
-        t.slicePalette[6]  = juce::Colour (0xFF50A6B8); // Steel Cyan
-        t.slicePalette[7]  = juce::Colour (0xFFB8668E); // Dark Rose
-        t.slicePalette[8]  = juce::Colour (0xFF6E9E5A); // Moss
-        t.slicePalette[9]  = juce::Colour (0xFFB87A66); // Clay
-        t.slicePalette[10] = juce::Colour (0xFF6670B8); // Slate Blue
-        t.slicePalette[11] = juce::Colour (0xFF96966E); // Concrete
-        t.slicePalette[12] = juce::Colour (0xFF8E5A98); // Plum
-        t.slicePalette[13] = juce::Colour (0xFF5A9E88); // Patina
-        t.slicePalette[14] = juce::Colour (0xFFA07098); // Mauve
-        t.slicePalette[15] = juce::Colour (0xFF7A9E80); // Lichen
+        t.name     = "light";
+        t.surface0 = juce::Colour (0xFFfafafe);
+        t.surface1 = juce::Colour (0xFFf0f0f4);
+        t.surface2 = juce::Colour (0xFFe8e8f0);
+        t.surface3 = juce::Colour (0xFFd0d4dc);
+        t.surface4 = juce::Colour (0xFFbcc0cc);
+        t.surface5 = juce::Colour (0xFF9090a0);
+        t.text0    = juce::Colour (0xFF9090a0);
+        t.text1    = juce::Colour (0xFF5e6874);
+        t.text2    = juce::Colour (0xFF1a1a2e);
+        t.waveform = juce::Colour (0xFF2a4060);
+        t.accent   = juce::Colour (0xFF1a8888);
+        t.color1   = juce::Colour (0xFF4a7098);
+        t.color2   = juce::Colour (0xFF98783a);
+        t.color3   = juce::Colour (0xFF4a7858);
+        t.color4   = juce::Colour (0xFF685090);
+        t.color5   = juce::Colour (0xFFcc4444);
+        t.slicePalette[0]  = juce::Colour (0xFF5aabb8);
+        t.slicePalette[1]  = juce::Colour (0xFFb85a5a);
+        t.slicePalette[2]  = juce::Colour (0xFF5aa66e);
+        t.slicePalette[3]  = juce::Colour (0xFFb89650);
+        t.slicePalette[4]  = juce::Colour (0xFF8066b8);
+        t.slicePalette[5]  = juce::Colour (0xFFa6a65a);
+        t.slicePalette[6]  = juce::Colour (0xFF50a6b8);
+        t.slicePalette[7]  = juce::Colour (0xFFb8668e);
+        t.slicePalette[8]  = juce::Colour (0xFF6e9e5a);
+        t.slicePalette[9]  = juce::Colour (0xFFb87a66);
+        t.slicePalette[10] = juce::Colour (0xFF6670b8);
+        t.slicePalette[11] = juce::Colour (0xFF96966e);
+        t.slicePalette[12] = juce::Colour (0xFF8e5a98);
+        t.slicePalette[13] = juce::Colour (0xFF5a9e88);
+        t.slicePalette[14] = juce::Colour (0xFFa07098);
+        t.slicePalette[15] = juce::Colour (0xFF7a9e80);
         return t;
     }
 
@@ -182,6 +107,19 @@ struct ThemeData
     static ThemeData fromThemeFile (const juce::String& text)
     {
         ThemeData t = darkTheme(); // defaults
+
+        // Track which new-format keys were explicitly set so old-format keys
+        // don't override them when both are present.
+        bool hasSurface0 = false, hasSurface1 = false, hasSurface2 = false;
+        bool hasSurface3 = false, hasSurface4 = false, hasSurface5 = false;
+        bool hasText0 = false, hasText1 = false, hasText2 = false;
+        bool hasAccent = false;
+        bool hasColor1 = false, hasColor2 = false, hasColor3 = false;
+        bool hasColor4 = false, hasColor5 = false;
+
+        // First pass: read all keys
+        struct KeyVal { juce::String key; juce::String val; };
+        std::vector<KeyVal> entries;
 
         for (auto line : juce::StringArray::fromLines (text))
         {
@@ -201,47 +139,32 @@ struct ThemeData
             if (hashIdx >= 0)
                 val = val.substring (0, hashIdx).trimEnd();
 
-            if (key == "name")            t.name = val;
-            else if (key == "background")    t.background = parseHex (val);
-            else if (key == "waveformBg")    t.waveformBg = parseHex (val);
-            else if (key == "darkBar")       t.darkBar = parseHex (val);
-            else if (key == "foreground")    t.foreground = parseHex (val);
-            else if (key == "header")    t.header = parseHex (val);
-            else if (key == "waveform") t.waveform = parseHex (val);
-            else if (key == "selectionOverlay") t.selectionOverlay = parseHex (val);
-            else if (key == "lockActive")      t.lockActive = parseHex (val);
-            else if (key == "lockInactive")       t.lockInactive = parseHex (val);
-            else if (key == "gridLine")      t.gridLine = parseHex (val);
-            else if (key == "accent")        t.accent = parseHex (val);
-            else if (key == "button")        t.button = parseHex (val);
-            else if (key == "buttonHover")   t.buttonHover = parseHex (val);
-            else if (key == "separator")     t.separator = parseHex (val);
-            else if (key == "module_name_playback") t.moduleNamePlayback = parseHex (val);
-            else if (key == "module_name_filter")   t.moduleNameFilter = parseHex (val);
-            else if (key == "module_name_amp")      t.moduleNameAmp = parseHex (val);
-            else if (key == "module_name_output")   t.moduleNameOutput = parseHex (val);
-            else if (key == "tab_global_active")    t.tabGlobalActive = parseHex (val);
-            else if (key == "tab_slice_active")     t.tabSliceActive = parseHex (val);
-            else if (key == "override_bar")         t.overrideBar = parseHex (val);
-            else if (key == "override_bar_hover")   t.overrideBarHover = parseHex (val);
-            else if (key == "override_label")       t.overrideLabel = parseHex (val);
-            else if (key == "override_value")       t.overrideValue = parseHex (val);
-            else if (key == "override_count")       t.overrideCount = parseHex (val);
-            else if (key == "filter_toggle_on")     t.filterToggleOn = parseHex (val);
-            else if (key == "set_bpm_text")         t.setBpmText = parseHex (val);
-            else if (key == "set_bpm_border")       t.setBpmBorder = parseHex (val);
-            else if (key == "param_label")          t.paramLabel = parseHex (val);
-            else if (key == "param_value")          t.paramValue = parseHex (val);
-            else if (key == "param_value_on")       t.paramValueOn = parseHex (val);
-            else if (key == "param_value_off")      t.paramValueOff = parseHex (val);
-            else if (key == "context_bar_bg")       t.contextBarBg = parseHex (val);
-            else if (key == "signal_chain_bg")      t.signalChainBg = parseHex (val);
-            else if (key == "module_border")        t.moduleBorder = parseHex (val);
-            else if (key == "context_text")         t.contextText = parseHex (val);
-            else if (key == "context_dim_text")     t.contextDimText = parseHex (val);
-            else if (key == "tab_inactive")         t.tabInactive = parseHex (val);
-            else if (key == "lazy_chop_overlay")    t.lazyChopOverlay = parseHex (val);
-            else if (key == "preview_cursor")       t.previewCursor = parseHex (val);
+            entries.push_back ({ key, val });
+        }
+
+        // Pass 1: Apply new-format keys first
+        for (const auto& e : entries)
+        {
+            const auto& key = e.key;
+            const auto& val = e.val;
+
+            if (key == "name")       t.name = val;
+            else if (key == "surface0") { t.surface0 = parseHex (val); hasSurface0 = true; }
+            else if (key == "surface1") { t.surface1 = parseHex (val); hasSurface1 = true; }
+            else if (key == "surface2") { t.surface2 = parseHex (val); hasSurface2 = true; }
+            else if (key == "surface3") { t.surface3 = parseHex (val); hasSurface3 = true; }
+            else if (key == "surface4") { t.surface4 = parseHex (val); hasSurface4 = true; }
+            else if (key == "surface5") { t.surface5 = parseHex (val); hasSurface5 = true; }
+            else if (key == "text0")    { t.text0 = parseHex (val); hasText0 = true; }
+            else if (key == "text1")    { t.text1 = parseHex (val); hasText1 = true; }
+            else if (key == "text2")    { t.text2 = parseHex (val); hasText2 = true; }
+            else if (key == "waveform") { t.waveform = parseHex (val); }
+            else if (key == "accent")   { t.accent = parseHex (val); hasAccent = true; }
+            else if (key == "color1")   { t.color1 = parseHex (val); hasColor1 = true; }
+            else if (key == "color2")   { t.color2 = parseHex (val); hasColor2 = true; }
+            else if (key == "color3")   { t.color3 = parseHex (val); hasColor3 = true; }
+            else if (key == "color4")   { t.color4 = parseHex (val); hasColor4 = true; }
+            else if (key == "color5")   { t.color5 = parseHex (val); hasColor5 = true; }
             else if (key.startsWith ("slice"))
             {
                 int idx = key.substring (5).getIntValue() - 1;
@@ -249,6 +172,45 @@ struct ThemeData
                     t.slicePalette[idx] = parseHex (val);
             }
         }
+
+        // Pass 2: Apply old-format keys only where new-format keys were not set.
+        // This provides backward compatibility for user-created themes.
+        for (const auto& e : entries)
+        {
+            const auto& key = e.key;
+            const auto& val = e.val;
+
+            if (key == "waveformBg" && ! hasSurface0)        t.surface0 = parseHex (val);
+            else if (key == "background" && ! hasSurface1)   t.surface1 = parseHex (val);
+            else if ((key == "darkBar" || key == "header") && ! hasSurface2) t.surface2 = parseHex (val);
+            else if ((key == "module_border" || key == "param_value_off" || key == "set_bpm_border") && ! hasSurface3)
+                t.surface3 = parseHex (val);
+            else if ((key == "gridLine" || key == "button") && ! hasSurface4) t.surface4 = parseHex (val);
+            else if ((key == "separator" || key == "buttonHover") && ! hasSurface5) t.surface5 = parseHex (val);
+            else if ((key == "lockInactive" || key == "param_label" || key == "context_text"
+                      || key == "context_dim_text" || key == "tab_inactive") && ! hasText0)
+                t.text0 = parseHex (val);
+            else if ((key == "param_value" || key == "override_value") && ! hasText1) t.text1 = parseHex (val);
+            else if (key == "foreground" && ! hasText2) t.text2 = parseHex (val);
+            else if ((key == "selectionOverlay" || key == "set_bpm_text" || key == "param_value_on"
+                      || key == "tab_global_active" || key == "tab_slice_active") && ! hasAccent)
+                { /* accent already handled by "accent" key or new-format key */ }
+            else if (key == "module_name_playback" && ! hasColor1) t.color1 = parseHex (val);
+            else if ((key == "module_name_filter" || key == "filter_toggle_on") && ! hasColor2) t.color2 = parseHex (val);
+            else if (key == "module_name_amp" && ! hasColor3) t.color3 = parseHex (val);
+            else if (key == "module_name_output" && ! hasColor4) t.color4 = parseHex (val);
+            else if ((key == "lockActive" || key == "override_bar" || key == "override_bar_hover"
+                      || key == "override_label" || key == "override_count"
+                      || key == "lazy_chop_overlay" || key == "preview_cursor") && ! hasColor5)
+                t.color5 = parseHex (val);
+            // Keys that map to existing new-format names (waveform, accent) are
+            // already handled in pass 1. Old keys like context_bar_bg,
+            // signal_chain_bg map to surface1 but are lower priority — skip if
+            // surface1 was explicitly set.
+            else if ((key == "context_bar_bg" || key == "signal_chain_bg") && ! hasSurface1)
+                t.surface1 = parseHex (val);
+        }
+
         return t;
     }
 
@@ -261,46 +223,27 @@ struct ThemeData
     {
         juce::String s;
         s << "name: " << name << "\n";
-        s << "background: " << colourToHex (background) << "\n";
-        s << "waveformBg: " << colourToHex (waveformBg) << "\n";
-        s << "darkBar: " << colourToHex (darkBar) << "\n";
-        s << "foreground: " << colourToHex (foreground) << "\n";
-        s << "header: " << colourToHex (header) << "\n";
+        s << "\n";
+        s << "surface0: " << colourToHex (surface0) << "\n";
+        s << "surface1: " << colourToHex (surface1) << "\n";
+        s << "surface2: " << colourToHex (surface2) << "\n";
+        s << "surface3: " << colourToHex (surface3) << "\n";
+        s << "surface4: " << colourToHex (surface4) << "\n";
+        s << "surface5: " << colourToHex (surface5) << "\n";
+        s << "\n";
+        s << "text0: " << colourToHex (text0) << "\n";
+        s << "text1: " << colourToHex (text1) << "\n";
+        s << "text2: " << colourToHex (text2) << "\n";
+        s << "\n";
         s << "waveform: " << colourToHex (waveform) << "\n";
-        s << "selectionOverlay: " << colourToHex (selectionOverlay) << "\n";
-        s << "lockActive: " << colourToHex (lockActive) << "\n";
-        s << "lockInactive: " << colourToHex (lockInactive) << "\n";
-        s << "gridLine: " << colourToHex (gridLine) << "\n";
         s << "accent: " << colourToHex (accent) << "\n";
-        s << "button: " << colourToHex (button) << "\n";
-        s << "buttonHover: " << colourToHex (buttonHover) << "\n";
-        s << "separator: " << colourToHex (separator) << "\n";
-        s << "module_name_playback: " << colourToHex (moduleNamePlayback) << "\n";
-        s << "module_name_filter: " << colourToHex (moduleNameFilter) << "\n";
-        s << "module_name_amp: " << colourToHex (moduleNameAmp) << "\n";
-        s << "module_name_output: " << colourToHex (moduleNameOutput) << "\n";
-        s << "tab_global_active: " << colourToHex (tabGlobalActive) << "\n";
-        s << "tab_slice_active: " << colourToHex (tabSliceActive) << "\n";
-        s << "override_bar: " << colourToHex (overrideBar) << "\n";
-        s << "override_bar_hover: " << colourToHex (overrideBarHover) << "\n";
-        s << "override_label: " << colourToHex (overrideLabel) << "\n";
-        s << "override_value: " << colourToHex (overrideValue) << "\n";
-        s << "override_count: " << colourToHex (overrideCount) << "\n";
-        s << "filter_toggle_on: " << colourToHex (filterToggleOn) << "\n";
-        s << "set_bpm_text: " << colourToHex (setBpmText) << "\n";
-        s << "set_bpm_border: " << colourToHex (setBpmBorder) << "\n";
-        s << "param_label: " << colourToHex (paramLabel) << "\n";
-        s << "param_value: " << colourToHex (paramValue) << "\n";
-        s << "param_value_on: " << colourToHex (paramValueOn) << "\n";
-        s << "param_value_off: " << colourToHex (paramValueOff) << "\n";
-        s << "context_bar_bg: " << colourToHex (contextBarBg) << "\n";
-        s << "signal_chain_bg: " << colourToHex (signalChainBg) << "\n";
-        s << "module_border: " << colourToHex (moduleBorder) << "\n";
-        s << "context_text: " << colourToHex (contextText) << "\n";
-        s << "context_dim_text: " << colourToHex (contextDimText) << "\n";
-        s << "tab_inactive: " << colourToHex (tabInactive) << "\n";
-        s << "lazy_chop_overlay: " << colourToHex (lazyChopOverlay) << "\n";
-        s << "preview_cursor: " << colourToHex (previewCursor) << "\n";
+        s << "\n";
+        s << "color1: " << colourToHex (color1) << "\n";
+        s << "color2: " << colourToHex (color2) << "\n";
+        s << "color3: " << colourToHex (color3) << "\n";
+        s << "color4: " << colourToHex (color4) << "\n";
+        s << "color5: " << colourToHex (color5) << "\n";
+        s << "\n";
         for (int i = 0; i < 16; ++i)
             s << "slice" << (i + 1) << ": " << colourToHex (slicePalette[i]) << "\n";
         return s;

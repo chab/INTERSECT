@@ -163,7 +163,7 @@ void ActionPanel::resized()
 void ActionPanel::paint (juce::Graphics& g)
 {
     const auto& theme = getTheme();
-    g.fillAll (theme.header);
+    g.fillAll (theme.surface2);
 
     const bool lazyActive = processor.lazyChop.isActive();
     const bool addActive = waveformView.isSliceDrawModeActive();
@@ -177,11 +177,11 @@ void ActionPanel::paint (juce::Graphics& g)
     const bool snapActive = processor.snapToZeroCrossing.load();
     const bool fmActive = processor.midiSelectsSlice.load();
 
-    const auto inactiveText = theme.paramLabel;
+    const auto inactiveText = theme.text0;
     const auto activeText = theme.accent;
-    const auto activeBg = theme.button;
-    const auto hoverText = theme.paramValue;
-    const auto hoverBg = theme.buttonHover;
+    const auto activeBg = theme.surface4;
+    const auto hoverText = theme.text1;
+    const auto hoverBg = theme.surface5;
 
     auto font = IntersectLookAndFeel::makeFont (11.0f);
     g.setFont (font);
@@ -232,7 +232,7 @@ void ActionPanel::paint (juce::Graphics& g)
     }
 
     // Pass 2: Draw borders on top so backgrounds never overwrite them
-    g.setColour (theme.moduleBorder);
+    g.setColour (theme.surface3);
     g.drawHorizontalLine (0, 0.0f, (float) getWidth());
     g.drawHorizontalLine (getHeight() - 1, 0.0f, (float) getWidth());
     for (int i = 0; i < (int) items.size() - 1; ++i)

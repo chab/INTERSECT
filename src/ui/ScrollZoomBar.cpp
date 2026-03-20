@@ -15,9 +15,9 @@ void ScrollZoomBar::paint (juce::Graphics& g)
     int w = getWidth();
     int h = getHeight();
 
-    g.fillAll (getTheme().waveformBg.withAlpha (0.98f));
+    g.fillAll (getTheme().surface0.withAlpha (0.98f));
 
-    g.setColour (getTheme().moduleBorder.withAlpha (0.42f));
+    g.setColour (getTheme().surface3.withAlpha (0.42f));
     g.drawHorizontalLine (0, 0.0f, (float) w);
 
     auto sampleSnap = processor.sampleData.getSnapshot();
@@ -70,7 +70,7 @@ void ScrollZoomBar::paint (juce::Graphics& g)
 
         if (isMajor)
         {
-            g.setColour (getTheme().paramLabel.withAlpha (0.32f));
+            g.setColour (getTheme().text0.withAlpha (0.32f));
             g.drawVerticalLine (tx, 1.0f, (float) h * 0.35f);
 
             g.setFont (IntersectLookAndFeel::makeFont (7.0f));
@@ -84,7 +84,7 @@ void ScrollZoomBar::paint (juce::Graphics& g)
         }
         else
         {
-            g.setColour (getTheme().paramLabel.withAlpha (0.15f));
+            g.setColour (getTheme().text0.withAlpha (0.15f));
             g.drawVerticalLine (tx, 1.0f, (float) h * 0.18f);
         }
     }

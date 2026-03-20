@@ -151,12 +151,12 @@ void WaveformView::rebuildCacheIfNeeded()
 void WaveformView::paint (juce::Graphics& g)
 {
     auto sampleSnap = processor.sampleData.getSnapshot();
-    g.fillAll (getTheme().waveformBg);
+    g.fillAll (getTheme().surface0);
 
     int cy = getHeight() / 2;
-    g.setColour (getTheme().gridLine.withAlpha (0.5f));
+    g.setColour (getTheme().surface4.withAlpha (0.5f));
     g.drawHorizontalLine (cy, 0.0f, (float) getWidth());
-    g.setColour (getTheme().gridLine.withAlpha (0.2f));
+    g.setColour (getTheme().surface4.withAlpha (0.2f));
     g.drawHorizontalLine (getHeight() / 4, 0.0f, (float) getWidth());
     g.drawHorizontalLine (getHeight() * 3 / 4, 0.0f, (float) getWidth());
 
@@ -176,7 +176,7 @@ void WaveformView::paint (juce::Graphics& g)
     else
     {
         paintViewStateActive = false;
-        g.setColour (getTheme().foreground.withAlpha (0.25f));
+        g.setColour (getTheme().text2.withAlpha (0.25f));
         g.setFont (IntersectLookAndFeel::makeFont (22.0f));
         g.drawText ("DROP AUDIO FILE", getLocalBounds(), juce::Justification::centred);
     }
@@ -239,9 +239,9 @@ void WaveformView::paintLazyChopOverlay (juce::Graphics& g)
     int x2 = sampleToPixel (std::max (chopSample, headSample));
     if (x2 > x1)
     {
-        g.setColour (getTheme().lazyChopOverlay.withAlpha (0.15f));
+        g.setColour (getTheme().color5.withAlpha (0.15f));
         g.fillRect (x1, 0, x2 - x1, getHeight());
-        g.setColour (getTheme().lazyChopOverlay.withAlpha (0.5f));
+        g.setColour (getTheme().color5.withAlpha (0.5f));
         g.drawVerticalLine (sampleToPixel (chopSample), 0.0f, (float) getHeight());
     }
 }
@@ -285,11 +285,11 @@ void WaveformView::paintOverlayHint (juce::Graphics& g)
     const int bannerY = juce::jmax (4, getHeight() - bannerH - 6);
     auto banner = juce::Rectangle<float> ((float) bannerX, (float) bannerY, (float) bannerW, (float) bannerH);
 
-    g.setColour (getTheme().darkBar.withAlpha (0.94f));
+    g.setColour (getTheme().surface2.withAlpha (0.94f));
     g.fillRoundedRectangle (banner, 4.0f);
-    g.setColour (getTheme().separator.withAlpha (0.85f));
+    g.setColour (getTheme().surface5.withAlpha (0.85f));
     g.drawRoundedRectangle (banner.reduced (0.5f), 4.0f, 1.0f);
-    g.setColour (getTheme().foreground.withAlpha (0.9f));
+    g.setColour (getTheme().text2.withAlpha (0.9f));
     g.drawFittedText (overlayHintText, banner.toNearestInt().reduced (8, 2), juce::Justification::centred, 1);
 }
 
@@ -463,7 +463,7 @@ void WaveformView::drawPlaybackCursors (juce::Graphics& g)
             if (px >= 0 && px < getWidth())
             {
                 if (i == previewIdx && processor.lazyChop.isActive())
-                    g.setColour (getTheme().previewCursor);
+                    g.setColour (getTheme().color5);
                 else
                     g.setColour (getTheme().accent.withAlpha (0.7f));  // yellow
 

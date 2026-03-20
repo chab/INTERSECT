@@ -419,6 +419,7 @@ void SignalChainBar::rebuildLayout()
     input.globals = GlobalParamSnapshot::loadFrom (processor.apvts, ui.rootNote);
     input.numSlices = ui.numSlices;
     input.selectedSliceIndex = ui.selectedSlice;
+    input.rootNote = ui.rootNote;
     input.sampleNumFrames = ui.sampleNumFrames;
     input.sampleLoaded = ui.sampleLoaded;
     input.sampleMissing = ui.sampleMissing;
@@ -433,6 +434,8 @@ void SignalChainBar::rebuildLayout()
     contextStatusBounds = {};
     contextDot1Bounds = {};
     contextDot2Bounds = {};
+    contextSlicesBounds = {};
+    contextRootBounds = {};
 
     juce::FlexBox shell;
     shell.flexDirection = juce::FlexBox::Direction::column;
@@ -449,10 +452,10 @@ void SignalChainBar::rebuildLayout()
     const std::array<float, 4> moduleWeights { 2.2f, 2.0f, 1.0f, 1.1f };
     const std::array<juce::String, 4> names { "PLAYBACK", "FILTER", "AMP", "OUTPUT" };
     const std::array<juce::Colour, 4> colours {
-        getTheme().moduleNamePlayback,
-        getTheme().moduleNameFilter,
-        getTheme().moduleNameAmp,
-        getTheme().moduleNameOutput
+        getTheme().color1,
+        getTheme().color2,
+        getTheme().color3,
+        getTheme().color4
     };
 
     juce::FlexBox moduleRow;
@@ -583,21 +586,26 @@ void SignalChainBar::rebuildContextBar (const LayoutInput& input)
     }
 
     const int infoItemIndex = contextRow.items.size();
-    contextRow.items.add (juce::FlexItem().withFlex (1.0f).withMinWidth (90.0f));
+    contextRow.items.add (juce::FlexItem().withFlex (1.0f).withMinWidth (40.0f));
+    const int slicesItemIndex = contextRow.items.size();
+    contextRow.items.add (juce::FlexItem().withWidth (58.0f));
+    contextRow.items.add (juce::FlexItem().withWidth (8.0f));   // gap
+    const int rootItemIndex = contextRow.items.size();
+    contextRow.items.add (juce::FlexItem().withWidth (42.0f));
+    contextRow.items.add (juce::FlexItem().withWidth (10.0f));  // trailing pad
     contextRow.performLayout (contextBounds.toFloat());
 
     addTabCell (toIntBounds (contextRow.items[0].currentBounds), "GLOBAL", TabTarget::Global, ! input.sliceScope, true);
     addTabCell (toIntBounds (contextRow.items[2].currentBounds), sliceTabText, TabTarget::Slice, input.sliceScope, input.hasValidSlice);
 
     contextInfoBounds = toIntBounds (contextRow.items[infoItemIndex].currentBounds);
-    if (input.sampleLoaded)
-        contextSubtitle = formatTrimmed ((float) input.sampleNumFrames / input.sampleRate, 2) + "s";
-    else if (input.sampleMissing)
+    contextSlicesBounds = toIntBounds (contextRow.items[slicesItemIndex].currentBounds);
+    contextRootBounds = toIntBounds (contextRow.items[rootItemIndex].currentBounds);
+
+    if (input.sampleMissing)
         contextSubtitle = "MISSING SAMPLE, RELINK REQUIRED";
-    else if (input.hasValidSlice)
-        contextSubtitle = "SLICE SELECTED, EDITS STAY GLOBAL";
-    else
-        contextSubtitle = "NO SLICE SELECTED";
+    else if (! input.sampleLoaded)
+        contextSubtitle = "NO SAMPLE LOADED";
 }
 
 void SignalChainBar::rebuildPlaybackModule (const LayoutInput& input,
@@ -1240,11 +1248,11 @@ void SignalChainBar::paint (juce::Graphics& g)
         lastBounds = bounds;
     }
 
-    g.fillAll (getTheme().signalChainBg);
+    g.fillAll (getTheme().surface1);
 
-    g.setColour (getTheme().contextBarBg);
+    g.setColour (getTheme().surface1);
     g.fillRect (contextBounds);
-    g.setColour (getTheme().moduleBorder.withAlpha (0.8f));
+    g.setColour (getTheme().surface3.withAlpha (0.8f));
     g.drawHorizontalLine (contextBounds.getY(), (float) contextBounds.getX(), (float) contextBounds.getRight());
 
     auto infoBounds = contextInfoBounds.reduced (0, 2);
@@ -1254,7 +1262,7 @@ void SignalChainBar::paint (juce::Graphics& g)
     {
         g.setFont (IntersectLookAndFeel::fitFontToWidth (contextTitle, 10.0f, 8.5f,
                                                          juce::jmin (140, infoBounds.getWidth()), false));
-        g.setColour (getTheme().contextText);
+        g.setColour (getTheme().text0);
         const int titleWidth = juce::jmin (128, infoBounds.getWidth());
         g.drawFittedText (contextTitle, infoX, infoBounds.getY(), titleWidth, infoBounds.getHeight(),
                           juce::Justification::centredLeft, 1);
@@ -1264,14 +1272,14 @@ void SignalChainBar::paint (juce::Graphics& g)
     if (contextDot1Bounds.getWidth() > 0)
     {
         g.setFont (IntersectLookAndFeel::makeFont (13.0f, true));
-        g.setColour (getTheme().contextText);
+        g.setColour (getTheme().text0);
         g.drawText (juce::String::charToString (0x00B7), contextDot1Bounds, juce::Justification::centred);
     }
 
     if (contextDot2Bounds.getWidth() > 0)
     {
         g.setFont (IntersectLookAndFeel::makeFont (13.0f, true));
-        g.setColour (getTheme().contextText);
+        g.setColour (getTheme().text0);
         g.drawText (juce::String::charToString (0x00B7), contextDot2Bounds, juce::Justification::centred);
     }
 
@@ -1279,7 +1287,7 @@ void SignalChainBar::paint (juce::Graphics& g)
     {
         g.setFont (IntersectLookAndFeel::fitFontToWidth (contextSubtitle, 9.0f, 7.5f,
                                                          infoBounds.getRight() - infoX, false));
-        g.setColour (getTheme().contextDimText);
+        g.setColour (getTheme().text0);
         g.drawFittedText (contextSubtitle, infoX, infoBounds.getY(),
                           infoBounds.getRight() - infoX, infoBounds.getHeight(),
                           juce::Justification::centredLeft, 1);
@@ -1288,11 +1296,43 @@ void SignalChainBar::paint (juce::Graphics& g)
     if (contextStatusBounds.getWidth() > 0 && contextStatus.isNotEmpty())
     {
         g.setFont (IntersectLookAndFeel::makeFont (8.6f, true));
-        g.setColour (getTheme().overrideCount);
+        g.setColour (getTheme().color5);
         g.drawText (contextStatus, contextStatusBounds.withTrimmedRight (14), juce::Justification::centredRight);
     }
 
-    g.setColour (getTheme().darkBar);
+    auto drawContextMetric = [&] (const juce::Rectangle<int>& metricBounds, const juce::String& label,
+                                   const juce::String& value, juce::Colour valueColour)
+    {
+        if (metricBounds.getWidth() <= 0)
+            return;
+        auto labelFont = IntersectLookAndFeel::makeFont (8.0f, true);
+        auto valueFont = IntersectLookAndFeel::fitFontToWidth (value, 10.0f, 8.5f,
+                                                                metricBounds.getWidth() - 14, false);
+        const int labelW = juce::roundToInt (measureTextWidth (labelFont, label)) + 1;
+        const int pairY = metricBounds.getY() + (metricBounds.getHeight() - 12) / 2;
+
+        g.setFont (labelFont);
+        g.setColour (getTheme().text0.withAlpha (0.6f));
+        g.drawText (label, metricBounds.getX(), pairY, labelW, 12,
+                    juce::Justification::centredLeft);
+
+        g.setFont (valueFont);
+        g.setColour (valueColour);
+        g.drawText (value, metricBounds.getX() + labelW + 3, pairY,
+                    metricBounds.getWidth() - labelW - 3, 12,
+                    juce::Justification::centredLeft);
+    };
+
+    {
+        const auto& ui = processor.getUiSliceSnapshot();
+        const bool rootEditable = (ui.numSlices == 0);
+        drawContextMetric (contextSlicesBounds, "SLICES", juce::String (ui.numSlices),
+                           getTheme().text0);
+        drawContextMetric (contextRootBounds, "ROOT", juce::String (ui.rootNote),
+                           rootEditable ? getTheme().text0 : getTheme().text2.withAlpha (0.6f));
+    }
+
+    g.setColour (getTheme().surface2);
     g.fillRect (moduleStripBounds);
 
     for (size_t mi = 0; mi < modules.size(); ++mi)
@@ -1308,7 +1348,7 @@ void SignalChainBar::paint (juce::Graphics& g)
         if (isSliceScopeActive() && module.overrideCount > 0)
         {
             g.setFont (IntersectLookAndFeel::makeFont (7.0f, false));
-            g.setColour (getTheme().overrideCount);
+            g.setColour (getTheme().color5);
             g.drawText (juce::String (module.overrideCount),
                         module.headerBounds.getX(), module.headerBounds.getY(),
                         module.headerBounds.getWidth(), module.headerBounds.getHeight(),
@@ -1317,7 +1357,7 @@ void SignalChainBar::paint (juce::Graphics& g)
 
         if (mi > 0)
         {
-            g.setColour (getTheme().moduleBorder);
+            g.setColour (getTheme().surface3);
             g.fillRect (module.bounds.getX(), module.bounds.getY(), 1, module.bounds.getHeight());
         }
     }
@@ -1335,8 +1375,8 @@ void SignalChainBar::paint (juce::Graphics& g)
 
 void SignalChainBar::drawTabCell (juce::Graphics& g, const Cell& cell) const
 {
-    auto accent = (cell.tabTarget == TabTarget::Global) ? getTheme().tabGlobalActive : getTheme().tabSliceActive;
-    auto inactiveBase = getTheme().tabInactive;
+    auto accent = getTheme().accent;
+    auto inactiveBase = getTheme().text0;
     auto text = cell.isActive ? accent : inactiveBase.withAlpha (cell.isEnabled ? 1.0f : 0.35f);
 
     g.setFont (IntersectLookAndFeel::fitFontToWidth (cell.valueText, 9.5f, 8.0f, cell.bounds.getWidth() - 8, true));
@@ -1352,7 +1392,7 @@ void SignalChainBar::drawTabCell (juce::Graphics& g, const Cell& cell) const
 
     if (cell.tabTarget == TabTarget::Global)
     {
-        g.setColour (getTheme().moduleBorder);
+        g.setColour (getTheme().surface3);
         g.fillRect (cell.bounds.getRight(), cell.bounds.getY(), 1, cell.bounds.getHeight());
     }
 }
@@ -1361,9 +1401,9 @@ void SignalChainBar::drawSetBpmCell (juce::Graphics& g, const Cell& cell) const
 {
     drawMiniButton (g, cell.bounds,
                     cell.valueText,
-                    getTheme().button.withAlpha (0.96f),
-                    getTheme().setBpmBorder.withAlpha (0.72f),
-                    getTheme().setBpmText,
+                    getTheme().surface4.withAlpha (0.96f),
+                    getTheme().surface3.withAlpha (0.72f),
+                    getTheme().accent,
                     7.0f, 6.4f,
                     cell.isEnabled);
 }
@@ -1380,14 +1420,14 @@ void SignalChainBar::drawParamCell (juce::Graphics& g, const Cell& cell) const
     if (cell.isHeaderControl)
     {
         const auto fill = (cell.currentValue > 0.5f
-            ? getTheme().buttonHover.interpolatedWith (getTheme().filterToggleOn, 0.18f)
-            : getTheme().button).withMultipliedAlpha (alpha);
+            ? getTheme().surface5.interpolatedWith (getTheme().color2, 0.18f)
+            : getTheme().surface4).withMultipliedAlpha (alpha);
         const auto outline = (cell.currentValue > 0.5f
-            ? getTheme().filterToggleOn.withAlpha (0.75f)
-            : getTheme().moduleBorder.withAlpha (0.82f)).withMultipliedAlpha (alpha);
+            ? getTheme().color2.withAlpha (0.75f)
+            : getTheme().surface3.withAlpha (0.82f)).withMultipliedAlpha (alpha);
         const auto text = (cell.currentValue > 0.5f
-            ? getTheme().filterToggleOn.brighter (0.5f)
-            : getTheme().paramLabel.withAlpha (0.96f)).withMultipliedAlpha (alpha);
+            ? getTheme().color2.brighter (0.5f)
+            : getTheme().text0.withAlpha (0.96f)).withMultipliedAlpha (alpha);
 
         drawMiniButton (g, cell.bounds, cell.valueText, fill, outline, text, 7.0f, 6.4f, cell.isEnabled);
         return;
@@ -1409,13 +1449,13 @@ void SignalChainBar::drawParamCell (juce::Graphics& g, const Cell& cell) const
         {
             auto labelFont = IntersectLookAndFeel::makeFont (7.5f, true);
             g.setFont (labelFont);
-            g.setColour (getTheme().paramLabel.brighter (0.15f).withAlpha (alpha));
+            g.setColour (getTheme().text0.brighter (0.15f).withAlpha (alpha));
             g.drawText (cell.label, contentBounds.getX(), contentBounds.getY(),
                         labelWidth, contentBounds.getHeight(), juce::Justification::centredLeft);
         }
 
         g.setFont (valueFont);
-        g.setColour ((cell.isLocked ? getTheme().overrideValue : getTheme().foreground).withAlpha (alpha));
+        g.setColour ((cell.isLocked ? getTheme().text1 : getTheme().text2).withAlpha (alpha));
         g.drawFittedText (cell.valueText, contentBounds.getX() + labelWidth + labelGap, contentBounds.getY(),
                           contentBounds.getWidth() - labelWidth - labelGap, contentBounds.getHeight(),
                           juce::Justification::centredLeft, 1);
@@ -1425,7 +1465,7 @@ void SignalChainBar::drawParamCell (juce::Graphics& g, const Cell& cell) const
     if (cell.label.isNotEmpty())
     {
         g.setFont (IntersectLookAndFeel::fitFontToWidth (cell.label, 7.5f, 6.6f, contentBounds.getWidth(), true));
-        g.setColour ((cell.isLocked ? getTheme().overrideLabel : getTheme().paramLabel).withAlpha (alpha));
+        g.setColour ((cell.isLocked ? getTheme().color5 : getTheme().text0).withAlpha (alpha));
         g.drawFittedText (cell.label,
                           contentBounds.getX(),
                           contentBounds.getY(),
@@ -1439,9 +1479,9 @@ void SignalChainBar::drawParamCell (juce::Graphics& g, const Cell& cell) const
     {
         const bool isOverride = cell.isLocked && isSliceScopeActive()
             && ! cell.isHeaderControl && ! cell.isContextInline;
-        auto valueColour = isOverride ? getTheme().overrideValue : getTheme().paramValue;
+        auto valueColour = getTheme().text1;
         if (! isOverride && cell.isBoolean)
-            valueColour = cell.currentValue > 0.5f ? getTheme().paramValueOn : getTheme().paramValueOff.brighter (0.6f);
+            valueColour = cell.currentValue > 0.5f ? getTheme().accent : getTheme().surface3.brighter (0.6f);
         if (cell.isReadOnly)
             valueColour = valueColour.withMultipliedAlpha (0.55f);
         valueColour = valueColour.withMultipliedAlpha (alpha);
@@ -1608,7 +1648,7 @@ void SignalChainBar::showTextEditor (const Cell& cell)
     textEditor->setFont (IntersectLookAndFeel::fitFontToWidth (cell.valueText, 10.5f, 8.5f,
                                                                 valueBounds.getWidth(), false));
     textEditor->setColour (juce::TextEditor::backgroundColourId, juce::Colours::transparentBlack);
-    textEditor->setColour (juce::TextEditor::textColourId, getTheme().paramValue.brighter (0.3f));
+    textEditor->setColour (juce::TextEditor::textColourId, getTheme().text1.brighter (0.3f));
     textEditor->setColour (juce::TextEditor::outlineColourId, juce::Colours::transparentBlack);
     textEditor->setColour (juce::TextEditor::focusedOutlineColourId, getTheme().accent.withAlpha (0.4f));
     textEditor->setColour (juce::TextEditor::highlightColourId, getTheme().accent.withAlpha (0.25f));
@@ -1655,6 +1695,56 @@ void SignalChainBar::showTextEditor (const Cell& cell)
     };
 }
 
+void SignalChainBar::showRootEditor()
+{
+    const auto& ui = processor.getUiSliceSnapshot();
+    auto editorBounds = contextRootBounds.reduced (0, 4);
+
+    textEditor = std::make_unique<juce::TextEditor>();
+    addAndMakeVisible (*textEditor);
+    textEditor->setBounds (editorBounds);
+    textEditor->setFont (IntersectLookAndFeel::makeFont (10.0f));
+    textEditor->setColour (juce::TextEditor::backgroundColourId, getTheme().surface1.brighter (0.15f));
+    textEditor->setColour (juce::TextEditor::textColourId, getTheme().text2);
+    textEditor->setColour (juce::TextEditor::outlineColourId, getTheme().accent);
+    textEditor->setText (juce::String (ui.rootNote), false);
+    textEditor->selectAll();
+    textEditor->grabKeyboardFocus();
+
+    juce::Component::SafePointer<SignalChainBar> safeThis (this);
+    textEditor->onReturnKey = [safeThis]
+    {
+        if (safeThis == nullptr || safeThis->textEditor == nullptr)
+            return;
+        const int newRootNote = juce::jlimit (0, 127, safeThis->textEditor->getText().getIntValue());
+        safeThis->textEditor->onFocusLost = nullptr;
+        safeThis->textEditor.reset();
+
+        IntersectProcessor::Command cmd;
+        cmd.type = IntersectProcessor::CmdSetRootNote;
+        cmd.intParam1 = newRootNote;
+        safeThis->processor.pushCommand (cmd);
+        if (safeThis != nullptr)
+            safeThis->repaint();
+    };
+    textEditor->onEscapeKey = [safeThis]
+    {
+        if (safeThis == nullptr || safeThis->textEditor == nullptr)
+            return;
+        safeThis->textEditor->onFocusLost = nullptr;
+        safeThis->textEditor.reset();
+        safeThis->repaint();
+    };
+    textEditor->onFocusLost = [safeThis]
+    {
+        if (safeThis == nullptr || safeThis->textEditor == nullptr)
+            return;
+        safeThis->textEditor->onFocusLost = nullptr;
+        safeThis->textEditor.reset();
+        safeThis->repaint();
+    };
+}
+
 void SignalChainBar::mouseDown (const juce::MouseEvent& e)
 {
     rebuildLayout();
@@ -1664,8 +1754,22 @@ void SignalChainBar::mouseDown (const juce::MouseEvent& e)
 
     endGlobalGesture();
     activeDragCell = -1;
+    draggingRoot = false;
 
     const auto pos = e.getPosition();
+
+    // ROOT drag interaction (only when no slices exist)
+    if (contextRootBounds.getWidth() > 0 && contextRootBounds.contains (pos))
+    {
+        const auto& ui = processor.getUiSliceSnapshot();
+        if (ui.numSlices == 0)
+        {
+            draggingRoot = true;
+            rootDragStartY = e.y;
+            rootDragStartValue = (float) ui.rootNote;
+            return;
+        }
+    }
     for (int i = (int) cells.size() - 1; i >= 0; --i)
     {
         const auto& cell = cells[(size_t) i];
@@ -1678,6 +1782,7 @@ void SignalChainBar::mouseDown (const juce::MouseEvent& e)
                 return;
 
             scope = (cell.tabTarget == TabTarget::Slice) ? Scope::Slice : Scope::Global;
+            layoutDirty = true;
             repaint();
             return;
         }
@@ -1744,6 +1849,17 @@ void SignalChainBar::mouseDown (const juce::MouseEvent& e)
 
 void SignalChainBar::mouseDrag (const juce::MouseEvent& e)
 {
+    if (draggingRoot)
+    {
+        const float deltaY = (float) (rootDragStartY - e.y);
+        const int newVal = juce::jlimit (0, 127, (int) (rootDragStartValue + deltaY * (127.0f / 200.0f)));
+        IntersectProcessor::Command cmd;
+        cmd.type = IntersectProcessor::CmdSetRootNote;
+        cmd.intParam1 = newVal;
+        processor.pushCommand (cmd);
+        return;
+    }
+
     if (activeDragCell < 0)
         return;
 
@@ -1783,12 +1899,24 @@ void SignalChainBar::mouseDrag (const juce::MouseEvent& e)
 void SignalChainBar::mouseUp (const juce::MouseEvent&)
 {
     activeDragCell = -1;
+    draggingRoot = false;
     endGlobalGesture();
 }
 
 void SignalChainBar::mouseDoubleClick (const juce::MouseEvent& e)
 {
     rebuildLayout();
+
+    // ROOT double-click text editor
+    if (contextRootBounds.getWidth() > 0 && contextRootBounds.contains (e.getPosition()))
+    {
+        const auto& ui = processor.getUiSliceSnapshot();
+        if (ui.numSlices == 0)
+        {
+            showRootEditor();
+            return;
+        }
+    }
 
     const auto pos = e.getPosition();
     for (int i = (int) cells.size() - 1; i >= 0; --i)
