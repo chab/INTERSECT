@@ -21,7 +21,7 @@ text0: 808080       # muted / inactive
 text1: 404040       # body / secondary
 text2: 000000       # primary
 
-waveform: 0f0f0f    # audio waveform rendering
+waveform: 007acc    # audio waveform rendering
 accent: 007acc      # main accent + selection + active tabs
 
 color1: 357ec7      # playback module

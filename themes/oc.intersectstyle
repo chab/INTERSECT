@@ -13,7 +13,7 @@ name: oc
 surface0: 191c1f    # waveform area
 surface1: 191c1f    # base background
 surface2: 212529    # raised panels
-surface3: 343a40    # borders
+surface3: 191c1f    # borders
 surface4: 343a40    # recessed controls
 surface5: 495057    # hover / separator
 

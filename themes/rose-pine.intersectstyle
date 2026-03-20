@@ -13,7 +13,7 @@ surface0: 1f1d2e    # waveform area
 surface1: 15131e    # base background
 surface2: 191724    # raised panels
 surface3: 26233a    # borders
-surface4: 1f1d2e    # recessed controls
+surface4: 26233a    # recessed controls
 surface5: 26233a    # hover / separator
 
 text0: 6e6a86       # muted / inactive
