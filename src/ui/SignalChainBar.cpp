@@ -58,7 +58,7 @@ juce::String formatBool (bool on)
 
 juce::String formatMs (float valueMs)
 {
-    return formatTrimmed (valueMs, valueMs < 100.0f ? 1 : 0) + "ms";
+    return juce::String (juce::roundToInt (valueMs)) + "ms";
 }
 
 juce::String formatPercent (float valuePercent, int decimals = 0)
@@ -1002,28 +1002,31 @@ void SignalChainBar::rebuildFilterModule (const LayoutInput& input,
                    ParamIds::defaultFilterKeyTrack, IntersectProcessor::FieldFilterKeyTrack, kLockFilterKeyTrack,
                    filterKey, 0.0f, 100.0f, 0.1f, 0.5f, 1, false, 0, filterKeyLocked);
 
-    const float filterAtkValue = input.sliceScope ? filterAtkSec : globals.filterEnvAttackSec * 1000.0f;
-    const float filterDecValue = input.sliceScope ? filterDecSec : globals.filterEnvDecaySec * 1000.0f;
+    const float filterAtkDisplayValue = filterAtkSec * 1000.0f;
+    const float filterDecDisplayValue = filterDecSec * 1000.0f;
     const float filterSusValue = input.sliceScope ? filterSus : globals.filterEnvSustain * 100.0f;
     const float filterSusDisplayValue = input.sliceScope ? filterSus * 100.0f : globals.filterEnvSustain * 100.0f;
-    const float filterRelValue = input.sliceScope ? filterRelSec : globals.filterEnvReleaseSec * 1000.0f;
+    const float filterRelDisplayValue = filterRelSec * 1000.0f;
 
-    addFilterCell (row2[0], "ATK", formatMs (filterAtkValue),
+    addFilterCell (row2[0], "ATK", formatMs (filterAtkDisplayValue),
                    ParamIds::defaultFilterEnvAttack, IntersectProcessor::FieldFilterEnvAttack, kLockFilterEnvAttack,
-                   filterAtkValue, 0.0f, input.sliceScope ? 10.0f : 10000.0f, input.sliceScope ? 0.0001f : 0.1f,
-                   5.0f, 1, false, 0, filterAtkLocked, DragMapping::Linear, false, input.sliceScope ? 1000.0f : 1.0f, true);
-    addFilterCell (row2[1], "DEC", formatMs (filterDecValue),
+                   input.sliceScope ? filterAtkSec : filterAtkDisplayValue,
+                   0.0f, input.sliceScope ? 10.0f : 10000.0f, input.sliceScope ? 0.001f : 1.0f,
+                   1.0f, 0, false, 0, filterAtkLocked, DragMapping::Linear, false, input.sliceScope ? 1000.0f : 1.0f, true);
+    addFilterCell (row2[1], "DEC", formatMs (filterDecDisplayValue),
                    ParamIds::defaultFilterEnvDecay, IntersectProcessor::FieldFilterEnvDecay, kLockFilterEnvDecay,
-                   filterDecValue, 0.0f, input.sliceScope ? 10.0f : 10000.0f, input.sliceScope ? 0.0001f : 0.1f,
-                   5.0f, 1, false, 0, filterDecLocked, DragMapping::Linear, false, input.sliceScope ? 1000.0f : 1.0f, true);
+                   input.sliceScope ? filterDecSec : filterDecDisplayValue,
+                   0.0f, input.sliceScope ? 10.0f : 10000.0f, input.sliceScope ? 0.001f : 1.0f,
+                   1.0f, 0, false, 0, filterDecLocked, DragMapping::Linear, false, input.sliceScope ? 1000.0f : 1.0f, true);
     addFilterCell (row2[2], "SUS", formatPercent (filterSusDisplayValue, 1),
                    ParamIds::defaultFilterEnvSustain, IntersectProcessor::FieldFilterEnvSustain, kLockFilterEnvSustain,
                    filterSusValue, 0.0f, input.sliceScope ? 1.0f : 100.0f, input.sliceScope ? 0.001f : 0.1f,
                    0.5f, 1, false, 0, filterSusLocked, DragMapping::Linear, false, input.sliceScope ? 100.0f : 1.0f, true);
-    addFilterCell (row2[3], "REL", formatMs (filterRelValue),
+    addFilterCell (row2[3], "REL", formatMs (filterRelDisplayValue),
                    ParamIds::defaultFilterEnvRelease, IntersectProcessor::FieldFilterEnvRelease, kLockFilterEnvRelease,
-                   filterRelValue, 0.0f, input.sliceScope ? 10.0f : 10000.0f, input.sliceScope ? 0.0001f : 0.1f,
-                   5.0f, 1, false, 0, filterRelLocked, DragMapping::Linear, false, input.sliceScope ? 1000.0f : 1.0f, true);
+                   input.sliceScope ? filterRelSec : filterRelDisplayValue,
+                   0.0f, input.sliceScope ? 10.0f : 10000.0f, input.sliceScope ? 0.001f : 1.0f,
+                   1.0f, 0, false, 0, filterRelLocked, DragMapping::Linear, false, input.sliceScope ? 1000.0f : 1.0f, true);
     addFilterCell (row2[4], "AMT", formatSigned (filterAmt, 1, "st"),
                    ParamIds::defaultFilterEnvAmount, IntersectProcessor::FieldFilterEnvAmount, kLockFilterEnvAmount,
                    filterAmt, -96.0f, 96.0f, 0.1f, 0.2f, 1, false, 0, filterAmtLocked);
@@ -1095,28 +1098,31 @@ void SignalChainBar::rebuildAmpModule (const LayoutInput& input,
         addParamCell (c);
     };
 
-    const float attackValue = input.sliceScope ? attackSec : globals.attackSec * 1000.0f;
-    const float decayValue = input.sliceScope ? decaySec : globals.decaySec * 1000.0f;
+    const float attackDisplayValue = attackSec * 1000.0f;
+    const float decayDisplayValue = decaySec * 1000.0f;
     const float sustainValue = input.sliceScope ? sustain : globals.sustain * 100.0f;
     const float sustainDisplayValue = input.sliceScope ? sustain * 100.0f : globals.sustain * 100.0f;
-    const float releaseValue = input.sliceScope ? releaseSec : globals.releaseSec * 1000.0f;
+    const float releaseDisplayValue = releaseSec * 1000.0f;
 
-    addAmpCell (row1[0], "ATK", formatMs (attackValue),
+    addAmpCell (row1[0], "ATK", formatMs (attackDisplayValue),
                 ParamIds::defaultAttack, IntersectProcessor::FieldAttack, kLockAttack,
-                attackValue, 0.0f, input.sliceScope ? 1.0f : 1000.0f, input.sliceScope ? 0.0001f : 0.1f,
-                2.0f, 1, attackLocked, false, input.sliceScope ? 1000.0f : 1.0f, true);
-    addAmpCell (row1[1], "DEC", formatMs (decayValue),
+                input.sliceScope ? attackSec : attackDisplayValue,
+                0.0f, input.sliceScope ? 1.0f : 1000.0f, input.sliceScope ? 0.001f : 1.0f,
+                1.0f, 0, attackLocked, false, input.sliceScope ? 1000.0f : 1.0f, true);
+    addAmpCell (row1[1], "DEC", formatMs (decayDisplayValue),
                 ParamIds::defaultDecay, IntersectProcessor::FieldDecay, kLockDecay,
-                decayValue, 0.0f, input.sliceScope ? 5.0f : 5000.0f, input.sliceScope ? 0.0001f : 0.1f,
-                5.0f, 1, decayLocked, false, input.sliceScope ? 1000.0f : 1.0f, true);
+                input.sliceScope ? decaySec : decayDisplayValue,
+                0.0f, input.sliceScope ? 5.0f : 5000.0f, input.sliceScope ? 0.001f : 1.0f,
+                1.0f, 0, decayLocked, false, input.sliceScope ? 1000.0f : 1.0f, true);
     addAmpCell (row1[2], "SUS", formatPercent (sustainDisplayValue, 1),
                 ParamIds::defaultSustain, IntersectProcessor::FieldSustain, kLockSustain,
                 sustainValue, 0.0f, input.sliceScope ? 1.0f : 100.0f, input.sliceScope ? 0.001f : 0.1f,
                 0.5f, 1, sustainLocked, false, input.sliceScope ? 100.0f : 1.0f);
-    addAmpCell (row2[0], "REL", formatMs (releaseValue),
+    addAmpCell (row2[0], "REL", formatMs (releaseDisplayValue),
                 ParamIds::defaultRelease, IntersectProcessor::FieldRelease, kLockRelease,
-                releaseValue, 0.0f, input.sliceScope ? 5.0f : 5000.0f, input.sliceScope ? 0.0001f : 0.1f,
-                5.0f, 1, releaseLocked, false, input.sliceScope ? 1000.0f : 1.0f, true);
+                input.sliceScope ? releaseSec : releaseDisplayValue,
+                0.0f, input.sliceScope ? 5.0f : 5000.0f, input.sliceScope ? 0.001f : 1.0f,
+                1.0f, 0, releaseLocked, false, input.sliceScope ? 1000.0f : 1.0f, true);
     addAmpCell (row2[1], "TAIL", formatBool (tail),
                 ParamIds::defaultReleaseTail, IntersectProcessor::FieldReleaseTail, kLockReleaseTail,
                 tail ? 1.0f : 0.0f, 0.0f, 1.0f, 1.0f, 0.0f, 0, tailLocked, true);
@@ -1620,7 +1626,10 @@ void SignalChainBar::showTextEditor (const Cell& cell)
 
         float displayValue = safeThis->textEditor->getText().getFloatValue();
         displayValue = safeThis->clampDisplayValue (cell, displayValue);
-        safeThis->applyCellValue (cell, safeThis->displayToStored (cell, displayValue), ! safeThis->isSliceScopeActive());
+        auto storedValue = safeThis->displayToStored (cell, displayValue);
+        if (cell.step > 0.0f)
+            storedValue = std::round (storedValue / cell.step) * cell.step;
+        safeThis->applyCellValue (cell, storedValue, ! safeThis->isSliceScopeActive());
         safeThis->textEditor->onFocusLost = nullptr;
         safeThis->textEditor.reset();
         safeThis->repaint();
