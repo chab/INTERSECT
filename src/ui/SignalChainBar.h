@@ -3,6 +3,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 #include "../params/GlobalParamSnapshot.h"
 #include <array>
+#include <functional>
 #include <vector>
 
 class IntersectProcessor;
@@ -28,6 +29,9 @@ public:
     void mouseDoubleClick (const juce::MouseEvent& e) override;
 
     void markLayoutDirty() { layoutDirty = true; }
+    bool isExpanded() const { return expanded; }
+    float getDesiredHeight() const;
+    std::function<void()> onHeightChanged;
 
 private:
     enum class Scope
@@ -88,6 +92,7 @@ private:
         bool isContextInline = false;
         bool isVisuallyDimmed = false;
         bool drawTrailingDivider = false;
+        bool isSliceScopeCell = false;
     };
 
     struct ModuleLayout
@@ -117,11 +122,16 @@ private:
     };
 
     void rebuildLayout();
+    void rebuildModuleStrip (const LayoutInput& input,
+                             const juce::Rectangle<int>& stripBounds,
+                             std::array<ModuleLayout, 4>& targetModules);
     void rebuildContextBar (const LayoutInput& input);
     void rebuildPlaybackModule (const LayoutInput& input,
-                                const std::pair<juce::Rectangle<int>, juce::Rectangle<int>>& rows);
+                                const std::pair<juce::Rectangle<int>, juce::Rectangle<int>>& rows,
+                                const ModuleLayout& moduleLayout);
     void rebuildFilterModule (const LayoutInput& input,
-                              const std::pair<juce::Rectangle<int>, juce::Rectangle<int>>& rows);
+                              const std::pair<juce::Rectangle<int>, juce::Rectangle<int>>& rows,
+                              const ModuleLayout& moduleLayout);
     void rebuildAmpModule (const LayoutInput& input,
                            const std::pair<juce::Rectangle<int>, juce::Rectangle<int>>& rows);
     void rebuildOutputModule (const LayoutInput& input,
@@ -157,7 +167,7 @@ private:
     void endGlobalGesture();
 
     void dismissTextEditor();
-    void showSetBpmPopup();
+    void showSetBpmPopup (bool sliceScope);
     void showTextEditor (const Cell& cell);
     void showRootEditor();
 
@@ -183,16 +193,22 @@ private:
     juce::Rectangle<int> contextSlicesBounds;
     juce::Rectangle<int> contextRootBounds;
     juce::Rectangle<int> moduleStripBounds;
+    juce::Rectangle<int> globalStripBounds;
+    juce::Rectangle<int> sliceStripBounds;
+    juce::Rectangle<int> separatorBounds;
+    juce::Rectangle<int> expandToggleBounds;
     juce::String contextTitle;
     juce::String contextSubtitle;
     juce::String contextStatus;
 
+    bool expanded = false;
     bool draggingRoot = false;
     int rootDragStartY = 0;
     float rootDragStartValue = 36.0f;
 
     std::vector<Cell> cells;
     std::array<ModuleLayout, 4> modules {};
+    std::array<ModuleLayout, 4> sliceModules {};
     std::unique_ptr<juce::TextEditor> textEditor;
 
     // Layout cache: rebuild only when inputs have changed.

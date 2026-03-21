@@ -7,8 +7,8 @@ static constexpr float kHeaderH    = 28.0f;
 static constexpr float kSliceLaneH = 20.0f;
 static constexpr float kScrollbarH = 10.0f;
 static constexpr float kActionH    = 22.0f;
-static constexpr float kSignalChainH = 94.0f;
 static constexpr float kWaveformMinH = 180.0f;
+static constexpr float kCollapsedSignalChainH = 94.0f;
 
 static juce::File getSettingsDir()
 {
@@ -46,6 +46,12 @@ IntersectEditor::IntersectEditor (IntersectProcessor& p)
     addAndMakeVisible (actionPanel);
 
     sliceLane.setWaveformView (&waveformView);
+
+    signalChainBar.onHeightChanged = [this]
+    {
+        float delta = signalChainBar.getDesiredHeight() - kCollapsedSignalChainH;
+        setSize (kBaseW, kBaseH + (int) delta);
+    };
 
     // Write default theme files if they don't exist
     ensureDefaultThemes();
@@ -103,10 +109,11 @@ void IntersectEditor::resized()
                          .withMinHeight (kActionH)
                          .withMaxHeight (kActionH)
                          .withHeight (kActionH));
+    const float signalChainH = signalChainBar.getDesiredHeight();
     shell.items.add (juce::FlexItem (signalChainBar)
-                         .withMinHeight (kSignalChainH)
-                         .withMaxHeight (kSignalChainH)
-                         .withHeight (kSignalChainH));
+                         .withMinHeight (signalChainH)
+                         .withMaxHeight (signalChainH)
+                         .withHeight (signalChainH));
 
     shell.performLayout (getLocalBounds().toFloat());
 }

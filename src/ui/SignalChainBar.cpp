@@ -10,6 +10,8 @@
 
 namespace
 {
+constexpr float kCollapsedHeight = 94.0f;
+constexpr float kExpandedHeight = 180.0f;
 constexpr int kContextHeight = 26;
 constexpr int kModuleHeaderHeight = 16;
 constexpr int kContextTabGap = 0;
@@ -188,7 +190,7 @@ std::array<uint32_t, 11> getModuleBits (SignalChainBar::Module module)
         case SignalChainBar::Module::Playback:
             return { kLockBpm, kLockPitch, kLockCentsDetune, kLockAlgorithm, kLockStretch,
                      kLockTonality, kLockFormant, kLockFormantComp, kLockGrainMode,
-                     kLockOneShot, 0u };
+                     0u, 0u };
         case SignalChainBar::Module::Filter:
             return { kLockFilterEnabled, kLockFilterType, kLockFilterSlope, kLockFilterCutoff,
                      kLockFilterReso, kLockFilterDrive, kLockFilterKeyTrack,
@@ -198,8 +200,8 @@ std::array<uint32_t, 11> getModuleBits (SignalChainBar::Module module)
             return { kLockAttack, kLockDecay, kLockSustain, kLockRelease, kLockReleaseTail,
                      0u, 0u, 0u, 0u, 0u, 0u };
         case SignalChainBar::Module::Output:
-            return { kLockReverse, kLockLoop, kLockMuteGroup, kLockVolume, kLockOutputBus,
-                     0u, 0u, 0u, 0u, 0u, 0u };
+            return { kLockReverse, kLockLoop, kLockOneShot, kLockMuteGroup, kLockVolume,
+                     kLockOutputBus, 0u, 0u, 0u, 0u, 0u };
     }
 
     return {};
@@ -208,6 +210,11 @@ std::array<uint32_t, 11> getModuleBits (SignalChainBar::Module module)
 
 SignalChainBar::SignalChainBar (IntersectProcessor& p) : processor (p)
 {
+}
+
+float SignalChainBar::getDesiredHeight() const
+{
+    return expanded ? kExpandedHeight : kCollapsedHeight;
 }
 
 void SignalChainBar::syncScopeFromSelection()
@@ -348,7 +355,6 @@ int SignalChainBar::countEffectiveModuleOverrides (Module module,
             count += checkFloat (kLockFormant, slice.formantSemitones, globals.formantSemitones);
             count += checkBool (kLockFormantComp, slice.formantComp, globals.formantComp);
             count += checkInt (kLockGrainMode, slice.grainMode, globals.grainMode);
-            count += checkBool (kLockOneShot, slice.oneShot, globals.oneShot);
             break;
 
         case Module::Filter:
@@ -377,6 +383,7 @@ int SignalChainBar::countEffectiveModuleOverrides (Module module,
         case Module::Output:
             count += checkBool (kLockReverse, slice.reverse, globals.reverse);
             count += checkInt (kLockLoop, slice.loopMode, globals.loopMode);
+            count += checkBool (kLockOneShot, slice.oneShot, globals.oneShot);
             count += checkInt (kLockMuteGroup, slice.muteGroup, globals.muteGroup);
             count += checkFloat (kLockVolume, slice.volume, globals.volumeDb);
             if ((slice.lockMask & kLockOutputBus) != 0)
@@ -408,6 +415,63 @@ int SignalChainBar::countAllEffectiveOverrides (const Slice& slice,
     return count;
 }
 
+void SignalChainBar::rebuildModuleStrip (const LayoutInput& input,
+                                         const juce::Rectangle<int>& stripBounds,
+                                         std::array<ModuleLayout, 4>& targetModules)
+{
+    const std::array<float, 4> moduleWeights { 2.2f, 2.0f, 1.0f, 1.2f };
+    const std::array<juce::String, 4> names { "TIME/PITCH", "FILTER", "AMP", "PLAYBACK" };
+    const std::array<juce::Colour, 4> colours {
+        getTheme().color1,
+        getTheme().color2,
+        getTheme().color3,
+        getTheme().color4
+    };
+
+    juce::FlexBox moduleRow;
+    moduleRow.flexDirection = juce::FlexBox::Direction::row;
+    moduleRow.flexWrap = juce::FlexBox::Wrap::noWrap;
+    moduleRow.alignItems = juce::FlexBox::AlignItems::stretch;
+
+    std::array<int, 4> moduleItemIndices {};
+    for (int i = 0; i < 4; ++i)
+    {
+        moduleItemIndices[(size_t) i] = moduleRow.items.size();
+        moduleRow.items.add (juce::FlexItem().withFlex (moduleWeights[(size_t) i]).withMinWidth (68.0f));
+    }
+    moduleRow.performLayout (stripBounds.toFloat());
+
+    for (int i = 0; i < 4; ++i)
+    {
+        auto& module = targetModules[(size_t) i];
+        module.module = (Module) i;
+        module.name = names[(size_t) i];
+        module.titleColour = colours[(size_t) i];
+        module.bounds = toIntBounds (moduleRow.items[moduleItemIndices[(size_t) i]].currentBounds);
+
+        auto moduleInner = module.bounds;
+        moduleInner.removeFromTop (expanded ? 12 : 4);
+        moduleInner.removeFromBottom (6);
+
+        juce::FlexBox moduleColumn;
+        moduleColumn.flexDirection = juce::FlexBox::Direction::column;
+        moduleColumn.flexWrap = juce::FlexBox::Wrap::noWrap;
+        moduleColumn.items.add (juce::FlexItem().withHeight ((float) kModuleHeaderHeight));
+        moduleColumn.items.add (juce::FlexItem().withFlex (1.0f));
+        moduleColumn.performLayout (moduleInner.toFloat());
+
+        module.headerBounds = toIntBounds (moduleColumn.items[0].currentBounds);
+        module.headerBounds.removeFromLeft (8);
+        module.headerBounds.removeFromRight (8);
+        module.bodyBounds = toIntBounds (moduleColumn.items[1].currentBounds);
+        module.bodyBounds.removeFromLeft (8);
+        module.bodyBounds.removeFromRight (8);
+        module.overrideCount = input.sliceScope && input.selectedSlice != nullptr
+            ? countEffectiveModuleOverrides (module.module, *input.selectedSlice, input.globals)
+            : 0;
+    }
+}
+
 void SignalChainBar::rebuildLayout()
 {
     cells.clear();
@@ -436,90 +500,189 @@ void SignalChainBar::rebuildLayout()
     contextDot2Bounds = {};
     contextSlicesBounds = {};
     contextRootBounds = {};
+    globalStripBounds = {};
+    sliceStripBounds = {};
+    separatorBounds = {};
 
     juce::FlexBox shell;
     shell.flexDirection = juce::FlexBox::Direction::column;
     shell.flexWrap = juce::FlexBox::Wrap::noWrap;
-    shell.items.add (juce::FlexItem().withFlex (1.0f));
-    shell.items.add (juce::FlexItem().withHeight ((float) kContextHeight));
-    shell.performLayout (getLocalBounds().toFloat());
 
-    moduleStripBounds = toIntBounds (shell.items[0].currentBounds);
-    contextBounds = toIntBounds (shell.items[1].currentBounds);
-
-    rebuildContextBar (input);
-
-    const std::array<float, 4> moduleWeights { 2.2f, 2.0f, 1.0f, 1.1f };
-    const std::array<juce::String, 4> names { "PLAYBACK", "FILTER", "AMP", "OUTPUT" };
-    const std::array<juce::Colour, 4> colours {
-        getTheme().color1,
-        getTheme().color2,
-        getTheme().color3,
-        getTheme().color4
-    };
-
-    juce::FlexBox moduleRow;
-    moduleRow.flexDirection = juce::FlexBox::Direction::row;
-    moduleRow.flexWrap = juce::FlexBox::Wrap::noWrap;
-    moduleRow.alignItems = juce::FlexBox::AlignItems::stretch;
-
-    std::array<int, 4> moduleItemIndices {};
-    for (int i = 0; i < 4; ++i)
+    if (expanded)
     {
-        moduleItemIndices[(size_t) i] = moduleRow.items.size();
-        moduleRow.items.add (juce::FlexItem().withFlex (moduleWeights[(size_t) i]).withMinWidth (68.0f));
-    }
-    moduleRow.performLayout (moduleStripBounds.toFloat());
+        shell.items.add (juce::FlexItem().withFlex (1.0f));  // slice strip
+        shell.items.add (juce::FlexItem().withHeight (2.0f)); // separator
+        shell.items.add (juce::FlexItem().withFlex (1.0f));  // global strip
+        shell.items.add (juce::FlexItem().withHeight ((float) kContextHeight));
+        shell.performLayout (getLocalBounds().toFloat());
 
-    for (int i = 0; i < 4; ++i)
+        sliceStripBounds = toIntBounds (shell.items[0].currentBounds);
+        separatorBounds = toIntBounds (shell.items[1].currentBounds);
+        globalStripBounds = toIntBounds (shell.items[2].currentBounds);
+        contextBounds = toIntBounds (shell.items[3].currentBounds);
+
+        // Build global strip
+        LayoutInput globalInput = input;
+        globalInput.sliceScope = false;
+        rebuildModuleStrip (globalInput, globalStripBounds, modules);
+        rebuildPlaybackModule (globalInput, splitRows (modules[0].bodyBounds), modules[0]);
+        rebuildFilterModule (globalInput, splitRows (modules[1].bodyBounds), modules[1]);
+        rebuildAmpModule (globalInput, splitRows (modules[2].bodyBounds));
+        rebuildOutputModule (globalInput, splitRows (modules[3].bodyBounds));
+
+        // Build slice strip
+        LayoutInput sliceInput = input;
+        sliceInput.sliceScope = input.hasValidSlice;
+        rebuildModuleStrip (sliceInput, sliceStripBounds, sliceModules);
+
+        // Tag all cells built so far as global-scope
+        const size_t globalCellCount = cells.size();
+
+        rebuildPlaybackModule (sliceInput, splitRows (sliceModules[0].bodyBounds), sliceModules[0]);
+        rebuildFilterModule (sliceInput, splitRows (sliceModules[1].bodyBounds), sliceModules[1]);
+        rebuildAmpModule (sliceInput, splitRows (sliceModules[2].bodyBounds));
+        rebuildOutputModule (sliceInput, splitRows (sliceModules[3].bodyBounds));
+
+        // Tag slice-strip cells (only when a valid slice exists for interaction)
+        if (input.hasValidSlice)
+        {
+            for (size_t i = globalCellCount; i < cells.size(); ++i)
+                cells[i].isSliceScopeCell = true;
+        }
+
+        // Rebuild context bar (no tabs in expanded mode)
+        rebuildContextBar (input);
+    }
+    else
     {
-        auto& module = modules[(size_t) i];
-        module.module = (Module) i;
-        module.name = names[(size_t) i];
-        module.titleColour = colours[(size_t) i];
-        module.bounds = toIntBounds (moduleRow.items[moduleItemIndices[(size_t) i]].currentBounds);
+        shell.items.add (juce::FlexItem().withFlex (1.0f));
+        shell.items.add (juce::FlexItem().withHeight ((float) kContextHeight));
+        shell.performLayout (getLocalBounds().toFloat());
 
-        auto moduleInner = module.bounds;
-        moduleInner.removeFromTop (4);
-        moduleInner.removeFromBottom (6);
+        moduleStripBounds = toIntBounds (shell.items[0].currentBounds);
+        contextBounds = toIntBounds (shell.items[1].currentBounds);
 
-        juce::FlexBox moduleColumn;
-        moduleColumn.flexDirection = juce::FlexBox::Direction::column;
-        moduleColumn.flexWrap = juce::FlexBox::Wrap::noWrap;
-        moduleColumn.items.add (juce::FlexItem().withHeight ((float) kModuleHeaderHeight));
-        moduleColumn.items.add (juce::FlexItem().withFlex (1.0f));
-        moduleColumn.performLayout (moduleInner.toFloat());
+        rebuildContextBar (input);
+        rebuildModuleStrip (input, moduleStripBounds, modules);
 
-        module.headerBounds = toIntBounds (moduleColumn.items[0].currentBounds);
-        module.headerBounds.removeFromLeft (8);
-        module.headerBounds.removeFromRight (8);
-        module.bodyBounds = toIntBounds (moduleColumn.items[1].currentBounds);
-        module.bodyBounds.removeFromLeft (8);
-        module.bodyBounds.removeFromRight (8);
-        module.overrideCount = input.sliceScope && input.selectedSlice != nullptr
-            ? countEffectiveModuleOverrides (module.module, *input.selectedSlice, input.globals)
-            : 0;
+        rebuildPlaybackModule (input, splitRows (modules[0].bodyBounds), modules[0]);
+        rebuildFilterModule (input, splitRows (modules[1].bodyBounds), modules[1]);
+        rebuildAmpModule (input, splitRows (modules[2].bodyBounds));
+        rebuildOutputModule (input, splitRows (modules[3].bodyBounds));
     }
-
-    rebuildPlaybackModule (input, splitRows (modules[0].bodyBounds));
-    rebuildFilterModule (input, splitRows (modules[1].bodyBounds));
-    rebuildAmpModule (input, splitRows (modules[2].bodyBounds));
-    rebuildOutputModule (input, splitRows (modules[3].bodyBounds));
 }
 
 void SignalChainBar::rebuildContextBar (const LayoutInput& input)
 {
+    constexpr int kExpandToggleWidth = 22;
     const int globalTabWidth = 56;
     const juce::String sliceTabText = input.hasValidSlice
         ? "SLICE " + juce::String (input.selectedSliceIndex + 1)
         : "SLICE";
     const int sliceTabWidth = input.hasValidSlice ? 76 : 56;
 
+    // Reserve space for expand toggle at right edge
+    auto contextArea = contextBounds;
+    expandToggleBounds = contextArea.removeFromRight (kExpandToggleWidth);
+
     juce::FlexBox contextRow;
     contextRow.flexDirection = juce::FlexBox::Direction::row;
     contextRow.flexWrap = juce::FlexBox::Wrap::noWrap;
     contextRow.alignItems = juce::FlexBox::AlignItems::stretch;
 
+    if (expanded)
+    {
+        // No tabs in expanded mode — slice info left, SLICES/ROOT right
+        if (input.hasValidSlice && input.selectedSlice != nullptr)
+        {
+            contextRow.items.add (juce::FlexItem().withWidth (8.0f)); // left pad
+            const int timeItemIndex = contextRow.items.size();
+            contextRow.items.add (juce::FlexItem().withWidth (42.0f));
+            const int dot1ItemIndex = contextRow.items.size();
+            contextRow.items.add (juce::FlexItem().withWidth (10.0f));
+            const int noteItemIndex = contextRow.items.size();
+            contextRow.items.add (juce::FlexItem().withWidth (24.0f));
+            const int dot2ItemIndex = contextRow.items.size();
+            contextRow.items.add (juce::FlexItem().withWidth (10.0f));
+            const int midiItemIndex = contextRow.items.size();
+            contextRow.items.add (juce::FlexItem().withWidth (50.0f));
+            contextRow.items.add (juce::FlexItem().withFlex (1.0f));
+            const int statusItemIndex = contextRow.items.size();
+            contextRow.items.add (juce::FlexItem().withWidth (90.0f));
+            const int slicesItemIndex = contextRow.items.size();
+            contextRow.items.add (juce::FlexItem().withWidth (58.0f));
+            contextRow.items.add (juce::FlexItem().withWidth (8.0f)); // gap
+            const int rootItemIndex = contextRow.items.size();
+            contextRow.items.add (juce::FlexItem().withWidth (42.0f));
+            contextRow.items.add (juce::FlexItem().withWidth (10.0f)); // trailing pad
+
+            contextRow.performLayout (contextArea.toFloat());
+
+            contextInfoBounds = toIntBounds (contextRow.items[timeItemIndex].currentBounds);
+            contextDot1Bounds = toIntBounds (contextRow.items[dot1ItemIndex].currentBounds);
+            contextDot2Bounds = toIntBounds (contextRow.items[dot2ItemIndex].currentBounds);
+            contextStatusBounds = toIntBounds (contextRow.items[statusItemIndex].currentBounds);
+            contextSlicesBounds = toIntBounds (contextRow.items[slicesItemIndex].currentBounds);
+            contextRootBounds = toIntBounds (contextRow.items[rootItemIndex].currentBounds);
+
+            const int overrideCount = countAllEffectiveOverrides (*input.selectedSlice, input.globals);
+            const float lenSec = (float) (input.selectedSlice->endSample - input.selectedSlice->startSample) / input.sampleRate;
+            contextTitle = formatTrimmed (lenSec, 2) + "s";
+            contextStatus = overrideCount > 0 ? juce::String (overrideCount) + " overrides" : juce::String();
+
+            Cell noteCell;
+            noteCell.module = Module::Playback;
+            noteCell.bounds = toIntBounds (contextRow.items[noteItemIndex].currentBounds);
+            noteCell.valueText = midiNoteName (input.selectedSlice->midiNote);
+            noteCell.isContextInline = true;
+            noteCell.isSliceScopeCell = true;
+            noteCell.fieldId = IntersectProcessor::FieldMidiNote;
+            noteCell.currentValue = (float) input.selectedSlice->midiNote;
+            noteCell.minVal = 0.0f;
+            noteCell.maxVal = 127.0f;
+            noteCell.step = 1.0f;
+            noteCell.dragPerPixel = 0.25f;
+            addParamCell (noteCell);
+
+            Cell midiCell;
+            midiCell.module = Module::Playback;
+            midiCell.bounds = toIntBounds (contextRow.items[midiItemIndex].currentBounds);
+            midiCell.label = "MIDI";
+            midiCell.valueText = juce::String (input.selectedSlice->midiNote);
+            midiCell.isContextInline = true;
+            midiCell.isSliceScopeCell = true;
+            midiCell.fieldId = IntersectProcessor::FieldMidiNote;
+            midiCell.currentValue = (float) input.selectedSlice->midiNote;
+            midiCell.minVal = 0.0f;
+            midiCell.maxVal = 127.0f;
+            midiCell.step = 1.0f;
+            midiCell.dragPerPixel = 0.25f;
+            addParamCell (midiCell);
+        }
+        else
+        {
+            const int infoItemIndex = contextRow.items.size();
+            contextRow.items.add (juce::FlexItem().withFlex (1.0f));
+            const int slicesItemIndex = contextRow.items.size();
+            contextRow.items.add (juce::FlexItem().withWidth (58.0f));
+            contextRow.items.add (juce::FlexItem().withWidth (8.0f)); // gap
+            const int rootItemIndex = contextRow.items.size();
+            contextRow.items.add (juce::FlexItem().withWidth (42.0f));
+            contextRow.items.add (juce::FlexItem().withWidth (10.0f)); // trailing pad
+            contextRow.performLayout (contextArea.toFloat());
+            contextInfoBounds = toIntBounds (contextRow.items[infoItemIndex].currentBounds);
+            contextSlicesBounds = toIntBounds (contextRow.items[slicesItemIndex].currentBounds);
+            contextRootBounds = toIntBounds (contextRow.items[rootItemIndex].currentBounds);
+
+            if (input.sampleMissing)
+                contextSubtitle = "MISSING SAMPLE, RELINK REQUIRED";
+            else if (! input.sampleLoaded)
+                contextSubtitle = "NO SAMPLE LOADED";
+        }
+        return;
+    }
+
+    // Collapsed mode: show tabs
     contextRow.items.add (juce::FlexItem().withWidth ((float) globalTabWidth));
     contextRow.items.add (juce::FlexItem().withWidth ((float) kContextTabGap));
     contextRow.items.add (juce::FlexItem().withWidth ((float) sliceTabWidth));
@@ -541,7 +704,7 @@ void SignalChainBar::rebuildContextBar (const LayoutInput& input)
         const int statusItemIndex = contextRow.items.size();
         contextRow.items.add (juce::FlexItem().withWidth (90.0f));
 
-        contextRow.performLayout (contextBounds.toFloat());
+        contextRow.performLayout (contextArea.toFloat());
 
         addTabCell (toIntBounds (contextRow.items[0].currentBounds), "GLOBAL", TabTarget::Global, ! input.sliceScope, true);
         addTabCell (toIntBounds (contextRow.items[2].currentBounds), sliceTabText, TabTarget::Slice, input.sliceScope, input.hasValidSlice);
@@ -593,7 +756,7 @@ void SignalChainBar::rebuildContextBar (const LayoutInput& input)
     const int rootItemIndex = contextRow.items.size();
     contextRow.items.add (juce::FlexItem().withWidth (42.0f));
     contextRow.items.add (juce::FlexItem().withWidth (10.0f));  // trailing pad
-    contextRow.performLayout (contextBounds.toFloat());
+    contextRow.performLayout (contextArea.toFloat());
 
     addTabCell (toIntBounds (contextRow.items[0].currentBounds), "GLOBAL", TabTarget::Global, ! input.sliceScope, true);
     addTabCell (toIntBounds (contextRow.items[2].currentBounds), sliceTabText, TabTarget::Slice, input.sliceScope, input.hasValidSlice);
@@ -609,7 +772,8 @@ void SignalChainBar::rebuildContextBar (const LayoutInput& input)
 }
 
 void SignalChainBar::rebuildPlaybackModule (const LayoutInput& input,
-                                            const std::pair<juce::Rectangle<int>, juce::Rectangle<int>>& rows)
+                                            const std::pair<juce::Rectangle<int>, juce::Rectangle<int>>& rows,
+                                            const ModuleLayout& moduleLayout)
 {
     const auto* selectedSlice = input.selectedSlice;
     const auto& globals = input.globals;
@@ -623,12 +787,12 @@ void SignalChainBar::rebuildPlaybackModule (const LayoutInput& input,
     setBpmCell.kind = CellKind::SetBpm;
     setBpmCell.module = Module::Playback;
     auto nameFont = IntersectLookAndFeel::fitFontToWidth (
-        modules[0].name, 8.5f, 7.2f, modules[0].headerBounds.getWidth() - 6, true);
-    const int nameW = (int) std::ceil (measureTextWidth (nameFont, modules[0].name));
+        moduleLayout.name, 8.5f, 7.2f, moduleLayout.headerBounds.getWidth() - 6, true);
+    const int nameW = (int) std::ceil (measureTextWidth (nameFont, moduleLayout.name));
     setBpmCell.bounds = juce::Rectangle<int> (
-        modules[0].headerBounds.getX() + nameW + 5,
-        modules[0].headerBounds.getY() + 2,
-        38, modules[0].headerBounds.getHeight() - 4);
+        moduleLayout.headerBounds.getX() + nameW + 5,
+        moduleLayout.headerBounds.getY() + 2,
+        38, moduleLayout.headerBounds.getHeight() - 4);
     setBpmCell.valueText = "SET BPM";
     setBpmCell.isEnabled = input.sliceScope ? input.hasValidSlice : input.sampleLoaded;
     addParamCell (setBpmCell);
@@ -651,14 +815,14 @@ void SignalChainBar::rebuildPlaybackModule (const LayoutInput& input,
 
     const auto row2 = resolvedAlgo == 1
         ? makeRowCells (rows.second, {
-            { 1.45f, kGroupGap }, { 0.96f, kCellGap }, { 0.92f, kCellGap }, { 0.8f, kGroupGap }, { 1.04f, kCellGap }, { 0.74f, 0 }
+            { 1.45f, kGroupGap }, { 0.96f, kCellGap }, { 0.92f, kCellGap }, { 0.8f, kGroupGap }, { 1.04f, 0 }
         })
         : (resolvedAlgo == 2
             ? makeRowCells (rows.second, {
-                { 1.46f, kGroupGap }, { 1.06f, kGroupGap }, { 1.06f, kCellGap }, { 0.78f, 0 }
+                { 1.46f, kGroupGap }, { 1.06f, kGroupGap }, { 1.06f, 0 }
             })
             : makeRowCells (rows.second, {
-                { 1.46f, kGroupGap }, { 1.18f, kCellGap }, { 0.82f, 0 }
+                { 1.46f, kGroupGap }, { 1.18f, 0 }
             }));
 
     const bool repitchStretch = resolvedAlgo == 0 && resolvedStretch;
@@ -834,7 +998,6 @@ void SignalChainBar::rebuildPlaybackModule (const LayoutInput& input,
     }
 
     const int stretchCellIndex = resolvedAlgo == 1 ? 4 : (resolvedAlgo == 2 ? 2 : 1);
-    const int oneShotCellIndex = resolvedAlgo == 1 ? 5 : (resolvedAlgo == 2 ? 3 : 2);
 
     cell = {};
     cell.module = Module::Playback;
@@ -850,31 +1013,12 @@ void SignalChainBar::rebuildPlaybackModule (const LayoutInput& input,
     cell.bounds = row2[(size_t) stretchCellIndex];
     cell.label = "STRETCH";
     cell.valueText = formatBool (resolvedStretch);
-    cell.drawTrailingDivider = true;
-    addParamCell (cell);
-
-    const auto [oneShot, oneShotLocked] = input.sliceScope
-        ? resolveLockedValue (selectedSlice, kLockOneShot, selectedSlice->oneShot, globals.oneShot)
-        : std::pair<bool, bool> { globals.oneShot, false };
-    cell = {};
-    cell.module = Module::Playback;
-    cell.globalParamId = ParamIds::defaultOneShot;
-    cell.fieldId = IntersectProcessor::FieldOneShot;
-    cell.lockBit = kLockOneShot;
-    cell.currentValue = oneShot ? 1.0f : 0.0f;
-    cell.minVal = 0.0f;
-    cell.maxVal = 1.0f;
-    cell.step = 1.0f;
-    cell.isBoolean = true;
-    cell.isLocked = oneShotLocked;
-    cell.bounds = row2[(size_t) oneShotCellIndex];
-    cell.label = "1SHOT";
-    cell.valueText = formatBool (oneShot);
     addParamCell (cell);
 }
 
 void SignalChainBar::rebuildFilterModule (const LayoutInput& input,
-                                          const std::pair<juce::Rectangle<int>, juce::Rectangle<int>>& rows)
+                                          const std::pair<juce::Rectangle<int>, juce::Rectangle<int>>& rows,
+                                          const ModuleLayout& moduleLayout)
 {
     const auto* selectedSlice = input.selectedSlice;
     const auto& globals = input.globals;
@@ -927,12 +1071,12 @@ void SignalChainBar::rebuildFilterModule (const LayoutInput& input,
     Cell cell;
     cell.module = Module::Filter;
     auto nameFont = IntersectLookAndFeel::fitFontToWidth (
-        modules[1].name, 8.5f, 7.2f, modules[1].headerBounds.getWidth() - 6, true);
-    const int nameW = (int) std::ceil (measureTextWidth (nameFont, modules[1].name));
+        moduleLayout.name, 8.5f, 7.2f, moduleLayout.headerBounds.getWidth() - 6, true);
+    const int nameW = (int) std::ceil (measureTextWidth (nameFont, moduleLayout.name));
     cell.bounds = juce::Rectangle<int> (
-        modules[1].headerBounds.getX() + nameW + 5,
-        modules[1].headerBounds.getY() + 2,
-        28, modules[1].headerBounds.getHeight() - 4);
+        moduleLayout.headerBounds.getX() + nameW + 5,
+        moduleLayout.headerBounds.getY() + 2,
+        28, moduleLayout.headerBounds.getHeight() - 4);
     cell.globalParamId = ParamIds::defaultFilterEnabled;
     cell.fieldId = IntersectProcessor::FieldFilterEnabled;
     cell.lockBit = kLockFilterEnabled;
@@ -1143,10 +1287,10 @@ void SignalChainBar::rebuildOutputModule (const LayoutInput& input,
     const auto& globals = input.globals;
     const auto loopNames = juce::StringArray { "Off", "Loop", "PP" };
     const auto row1 = makeRowCells (rows.first, {
-        { 0.78f, kCellGap }, { 0.94f, kCellGap }, { 0.84f, 0 }
+        { 0.72f, kCellGap }, { 0.86f, kCellGap }, { 0.78f, 0 }
     });
     const auto row2 = makeRowCells (rows.second, {
-        { 1.0f, kCellGap }, { 0.96f, 0 }
+        { 0.78f, kCellGap }, { 1.0f, kCellGap }, { 0.96f, 0 }
     });
 
     const auto [reverse, reverseLocked] = input.sliceScope
@@ -1155,6 +1299,9 @@ void SignalChainBar::rebuildOutputModule (const LayoutInput& input,
     const auto [loopMode, loopLocked] = input.sliceScope
         ? resolveLockedValue (selectedSlice, kLockLoop, selectedSlice->loopMode, globals.loopMode)
         : std::pair<int, bool> { globals.loopMode, false };
+    const auto [oneShot, oneShotLocked] = input.sliceScope
+        ? resolveLockedValue (selectedSlice, kLockOneShot, selectedSlice->oneShot, globals.oneShot)
+        : std::pair<bool, bool> { globals.oneShot, false };
     const auto [muteGroup, muteLocked] = input.sliceScope
         ? resolveLockedValue (selectedSlice, kLockMuteGroup, selectedSlice->muteGroup, globals.muteGroup)
         : std::pair<int, bool> { globals.muteGroup, false };
@@ -1213,23 +1360,26 @@ void SignalChainBar::rebuildOutputModule (const LayoutInput& input,
     addOutputCell (row1[1], "LOOP", getChoiceName (loopMode, loopNames),
                    ParamIds::defaultLoop, IntersectProcessor::FieldLoop, kLockLoop,
                    (float) loopMode, 0.0f, 2.0f, 1.0f, 0.0f, 0, loopLocked, false, true, 3, 0.0f, true);
-    addOutputCell (row1[2], "MUTE", juce::String (muteGroup),
-                   ParamIds::defaultMuteGroup, IntersectProcessor::FieldMuteGroup, kLockMuteGroup,
-                   (float) muteGroup, 0.0f, 32.0f, 1.0f, 0.25f, 0, muteLocked);
+    addOutputCell (row1[2], "1SHOT", formatBool (oneShot),
+                   ParamIds::defaultOneShot, IntersectProcessor::FieldOneShot, kLockOneShot,
+                   oneShot ? 1.0f : 0.0f, 0.0f, 1.0f, 1.0f, 0.0f, 0, oneShotLocked, true);
 
-    addOutputCell (row2[0], "GAIN", formatGain (gain),
+    addOutputCell (row2[0], "MUTE", juce::String (muteGroup),
+                   ParamIds::defaultMuteGroup, IntersectProcessor::FieldMuteGroup, kLockMuteGroup,
+                   (float) muteGroup, 0.0f, 32.0f, 1.0f, 0.25f, 0, muteLocked, false, false, 0, 0.0f, true);
+    addOutputCell (row2[1], "GAIN", formatGain (gain),
                    ParamIds::masterVolume, IntersectProcessor::FieldVolume, kLockVolume,
                    gain, -100.0f, 24.0f, 0.1f, 0.3f, 1, gainLocked, false, false, 0, 0.0f, true);
 
     if (input.sliceScope)
     {
-        addOutputCell (row2[1], "OUT", juce::String (outputBus + 1),
+        addOutputCell (row2[2], "OUT", juce::String (outputBus + 1),
                        {}, IntersectProcessor::FieldOutputBus, kLockOutputBus,
                        (float) outputBus, 0.0f, 15.0f, 1.0f, 0.25f, 0, outputLocked, false, false, 0, 1.0f);
         return;
     }
 
-    addOutputCell (row2[1], "VOICES", juce::String (globals.maxVoices),
+    addOutputCell (row2[2], "VOICES", juce::String (globals.maxVoices),
                    ParamIds::maxVoices, -1, 0u,
                    (float) globals.maxVoices, 1.0f, 31.0f, 1.0f, 0.25f, 0, false);
 }
@@ -1332,34 +1482,83 @@ void SignalChainBar::paint (juce::Graphics& g)
                            rootEditable ? getTheme().text0 : getTheme().text2.withAlpha (0.6f));
     }
 
-    g.setColour (getTheme().surface2);
-    g.fillRect (moduleStripBounds);
-
-    for (size_t mi = 0; mi < modules.size(); ++mi)
+    // Draw expand toggle chevron
     {
-        const auto& module = modules[mi];
-        g.setFont (IntersectLookAndFeel::fitFontToWidth (module.name, 8.5f, 7.2f,
-                                                         module.headerBounds.getWidth() - 6, true));
-        g.setColour (module.titleColour.withAlpha (0.96f));
-        g.drawFittedText (module.name, module.headerBounds.getX(), module.headerBounds.getY(),
-                          module.headerBounds.getWidth(), module.headerBounds.getHeight(),
-                          juce::Justification::centredLeft, 1);
-
-        if (isSliceScopeActive() && module.overrideCount > 0)
+        auto tb = expandToggleBounds.reduced (4, 6);
+        g.setColour (getTheme().text0.withAlpha (0.7f));
+        juce::Path chevron;
+        if (expanded)
         {
-            g.setFont (IntersectLookAndFeel::makeFont (7.0f, false));
-            g.setColour (getTheme().color5);
-            g.drawText (juce::String (module.overrideCount),
-                        module.headerBounds.getX(), module.headerBounds.getY(),
-                        module.headerBounds.getWidth(), module.headerBounds.getHeight(),
-                        juce::Justification::centredRight);
+            chevron.addTriangle ((float) tb.getX(), (float) tb.getBottom(),
+                                 (float) tb.getRight(), (float) tb.getBottom(),
+                                 (float) tb.getCentreX(), (float) tb.getY());
+        }
+        else
+        {
+            chevron.addTriangle ((float) tb.getX(), (float) tb.getY(),
+                                 (float) tb.getRight(), (float) tb.getY(),
+                                 (float) tb.getCentreX(), (float) tb.getBottom());
+        }
+        g.fillPath (chevron);
+    }
+
+    auto drawModuleStrip = [&] (const std::array<ModuleLayout, 4>& stripModules,
+                                const juce::Rectangle<int>& stripBounds,
+                                bool isSliceStrip)
+    {
+        g.setColour (isSliceStrip ? getTheme().surface2.darker (0.06f) : getTheme().surface2);
+        g.fillRect (stripBounds);
+
+        if (expanded)
+        {
+            g.setFont (IntersectLookAndFeel::makeFont (7.0f, true));
+            g.setColour (getTheme().text0.withAlpha (0.4f));
+            g.drawText (isSliceStrip ? "SLICE" : "GLOBAL",
+                        stripBounds.getX() + 2, stripBounds.getY() + 1, 36, 10,
+                        juce::Justification::centredLeft);
         }
 
-        if (mi > 0)
+        for (size_t mi = 0; mi < stripModules.size(); ++mi)
         {
-            g.setColour (getTheme().surface3);
-            g.fillRect (module.bounds.getX(), module.bounds.getY(), 1, module.bounds.getHeight());
+            const auto& module = stripModules[mi];
+            g.setFont (IntersectLookAndFeel::fitFontToWidth (module.name, 8.5f, 7.2f,
+                                                             module.headerBounds.getWidth() - 6, true));
+            g.setColour (module.titleColour.withAlpha (0.96f));
+            g.drawFittedText (module.name, module.headerBounds.getX(), module.headerBounds.getY(),
+                              module.headerBounds.getWidth(), module.headerBounds.getHeight(),
+                              juce::Justification::centredLeft, 1);
+
+            if (module.overrideCount > 0)
+            {
+                g.setFont (IntersectLookAndFeel::makeFont (7.0f, false));
+                g.setColour (getTheme().color5);
+                g.drawText (juce::String (module.overrideCount),
+                            module.headerBounds.getX(), module.headerBounds.getY(),
+                            module.headerBounds.getWidth(), module.headerBounds.getHeight(),
+                            juce::Justification::centredRight);
+            }
+
+            if (mi > 0)
+            {
+                g.setColour (getTheme().surface3);
+                g.fillRect (module.bounds.getX(), module.bounds.getY(), 1, module.bounds.getHeight());
+            }
         }
+    };
+
+    if (expanded)
+    {
+        drawModuleStrip (sliceModules, sliceStripBounds, true);
+
+        // Separator line
+        g.setColour (getTheme().surface3.withAlpha (0.6f));
+        g.fillRect (separatorBounds);
+
+        drawModuleStrip (modules, globalStripBounds, false);
+    }
+    else
+    {
+        drawModuleStrip (modules, moduleStripBounds, isSliceScopeActive());
     }
 
     for (const auto& cell : cells)
@@ -1477,7 +1676,7 @@ void SignalChainBar::drawParamCell (juce::Graphics& g, const Cell& cell) const
 
     if (cell.valueText.isNotEmpty())
     {
-        const bool isOverride = cell.isLocked && isSliceScopeActive()
+        const bool isOverride = cell.isLocked && (isSliceScopeActive() || cell.isSliceScopeCell)
             && ! cell.isHeaderControl && ! cell.isContextInline;
         auto valueColour = getTheme().text1;
         if (! isOverride && cell.isBoolean)
@@ -1501,21 +1700,24 @@ void SignalChainBar::drawParamCell (juce::Graphics& g, const Cell& cell) const
 
 void SignalChainBar::toggleBooleanCell (const Cell& cell)
 {
-    applyCellValue (cell, cell.currentValue > 0.5f ? 0.0f : 1.0f, ! isSliceScopeActive());
+    const bool cellIsSlice = expanded ? cell.isSliceScopeCell : isSliceScopeActive();
+    applyCellValue (cell, cell.currentValue > 0.5f ? 0.0f : 1.0f, ! cellIsSlice);
 }
 
 void SignalChainBar::cycleChoiceCell (const Cell& cell)
 {
+    const bool cellIsSlice = expanded ? cell.isSliceScopeCell : isSliceScopeActive();
     const int current = juce::jlimit (0, juce::jmax (0, cell.choiceCount - 1), (int) std::round (cell.currentValue));
     const int next = cell.choiceCount > 0 ? (current + 1) % cell.choiceCount : current;
-    applyCellValue (cell, (float) next, ! isSliceScopeActive());
+    applyCellValue (cell, (float) next, ! cellIsSlice);
 }
 
 void SignalChainBar::applyCellValue (const Cell& cell, float storedValue, bool oneShotGlobal)
 {
     storedValue = clampStoredValue (cell, storedValue);
 
-    if (isSliceScopeActive() && cell.fieldId >= 0)
+    const bool cellIsSlice = expanded ? cell.isSliceScopeCell : isSliceScopeActive();
+    if (cellIsSlice && cell.fieldId >= 0)
     {
         IntersectProcessor::Command cmd;
         cmd.type = IntersectProcessor::CmdSetSliceParam;
@@ -1592,7 +1794,7 @@ void SignalChainBar::dismissTextEditor()
     textEditor.reset();
 }
 
-void SignalChainBar::showSetBpmPopup()
+void SignalChainBar::showSetBpmPopup (bool sliceScope)
 {
     juce::PopupMenu menu;
     menu.setLookAndFeel (&getLookAndFeel());
@@ -1615,7 +1817,7 @@ void SignalChainBar::showSetBpmPopup()
                             .withMaximumNumColumns (1)
                             .withMinimumWidth ((int) std::round (156.0f * menuScale))
                             .withStandardItemHeight ((int) std::round (24.0f * menuScale)),
-        [this] (int result)
+        [this, sliceScope] (int result)
         {
             if (result <= 0 || result > 9)
                 return;
@@ -1623,7 +1825,7 @@ void SignalChainBar::showSetBpmPopup()
             const float bars[] = { 0.0f, 16.0f, 8.0f, 4.0f, 2.0f, 1.0f, 0.5f, 0.25f, 0.125f, 0.0625f };
             const float barCount = bars[result];
 
-            if (isSliceScopeActive())
+            if (sliceScope)
             {
                 IntersectProcessor::Command cmd;
                 cmd.type = IntersectProcessor::CmdStretch;
@@ -1695,7 +1897,8 @@ void SignalChainBar::showTextEditor (const Cell& cell)
         });
     };
 
-    textEditor->onReturnKey = [safeThis, cell]
+    const bool cellIsSlice = expanded ? cell.isSliceScopeCell : isSliceScopeActive();
+    textEditor->onReturnKey = [safeThis, cell, cellIsSlice]
     {
         if (safeThis == nullptr || safeThis->textEditor == nullptr)
             return;
@@ -1706,13 +1909,13 @@ void SignalChainBar::showTextEditor (const Cell& cell)
         if (cell.step > 0.0f)
             storedValue = std::round (storedValue / cell.step) * cell.step;
 
-        juce::MessageManager::callAsync ([safeThis, cell, storedValue]
+        juce::MessageManager::callAsync ([safeThis, cell, storedValue, cellIsSlice]
         {
             if (safeThis == nullptr)
                 return;
 
             safeThis->dismissTextEditor();
-            safeThis->applyCellValue (cell, storedValue, ! safeThis->isSliceScopeActive());
+            safeThis->applyCellValue (cell, storedValue, ! cellIsSlice);
             safeThis->repaint();
         });
     };
@@ -1815,6 +2018,17 @@ void SignalChainBar::mouseDown (const juce::MouseEvent& e)
 
     const auto pos = e.getPosition();
 
+    // Expand toggle
+    if (expandToggleBounds.contains (pos))
+    {
+        expanded = ! expanded;
+        layoutDirty = true;
+        if (onHeightChanged)
+            onHeightChanged();
+        repaint();
+        return;
+    }
+
     // ROOT drag interaction (only when no slices exist)
     if (contextRootBounds.getWidth() > 0 && contextRootBounds.contains (pos))
     {
@@ -1847,11 +2061,15 @@ void SignalChainBar::mouseDown (const juce::MouseEvent& e)
         if (cell.kind == CellKind::SetBpm)
         {
             if (cell.isEnabled)
-                showSetBpmPopup();
+            {
+                const bool bpmSlice = expanded ? cell.isSliceScopeCell : isSliceScopeActive();
+                showSetBpmPopup (bpmSlice);
+            }
             return;
         }
 
-        const bool clearableOverride = isSliceScopeActive()
+        const bool cellIsSlice = expanded ? cell.isSliceScopeCell : isSliceScopeActive();
+        const bool clearableOverride = cellIsSlice
             && cell.kind == CellKind::Param
             && cell.isLocked
             && cell.lockBit != 0
@@ -1890,7 +2108,7 @@ void SignalChainBar::mouseDown (const juce::MouseEvent& e)
         dragStartY = pos.y;
         dragStartInteractionValue = storedToInteraction (cell, cell.currentValue);
 
-        if (isSliceScopeActive())
+        if (cellIsSlice)
         {
             IntersectProcessor::Command gestureCmd;
             gestureCmd.type = IntersectProcessor::CmdBeginGesture;

@@ -817,8 +817,6 @@ void IntersectProcessor::handleCommand (const Command& cmd)
                     s.startSample, s.endSample, cmd.floatParam1, currentSampleRate);
                 s.bpm = newBpm;
                 s.lockMask |= kLockBpm;
-                s.algorithm = 1;
-                s.lockMask |= kLockAlgorithm;
             }
             break;
         }
