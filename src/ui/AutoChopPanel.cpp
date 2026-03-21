@@ -165,9 +165,10 @@ void AutoChopPanel::updatePreview()
 
     const auto& s = ui.slices[(size_t) sel];
     float sens = (float) sensitivitySlider.getValue() / 100.0f;
+    const double sampleRate = sampleSnap->decodedSampleRate > 0.0 ? sampleSnap->decodedSampleRate : 44100.0;
 
     auto positions = AudioAnalysis::detectTransients (
-        sampleSnap->buffer, s.startSample, s.endSample, sens, processor.getSampleRate());
+        sampleSnap->buffer, s.startSample, s.endSample, sens, sampleRate);
 
     if (processor.snapToZeroCrossing.load())
     {

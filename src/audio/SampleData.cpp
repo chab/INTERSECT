@@ -72,14 +72,16 @@ std::unique_ptr<SampleData::DecodedSample> SampleData::decodeFromFile (const juc
 
     auto numFrames = (int) reader->lengthInSamples;
     auto numChannels = (int) reader->numChannels;
-    auto sourceSampleRate = reader->sampleRate;
+    const int sourceNumFrames = numFrames;
+    const double sourceSampleRate = reader->sampleRate > 0.0 ? reader->sampleRate : 44100.0;
+    const double targetSampleRate = projectSampleRate > 0.0 ? projectSampleRate : sourceSampleRate;
 
     juce::AudioBuffer<float> sourceBuffer (numChannels, numFrames);
     reader->read (&sourceBuffer, 0, numFrames, 0, true, true);
 
-    if (std::abs (sourceSampleRate - projectSampleRate) > 0.01)
+    if (std::abs (sourceSampleRate - targetSampleRate) > 0.01)
     {
-        double ratio = sourceSampleRate / projectSampleRate;
+        double ratio = sourceSampleRate / targetSampleRate;
         int resampledLen = (int) std::ceil (numFrames / ratio);
         juce::AudioBuffer<float> resampledBuffer (numChannels, resampledLen);
 
@@ -113,6 +115,10 @@ std::unique_ptr<SampleData::DecodedSample> SampleData::decodeFromFile (const juc
     decoded->buffer = std::move (newBuffer);
     decoded->fileName = file.getFileName();
     decoded->filePath = file.getFullPathName();
+    decoded->decodedNumFrames = numFrames;
+    decoded->decodedSampleRate = targetSampleRate;
+    decoded->sourceNumFrames = sourceNumFrames;
+    decoded->sourceSampleRate = sourceSampleRate;
     buildMipmapsForBuffer (decoded->buffer, decoded->peakMipmaps);
     return decoded;
 }
@@ -124,7 +130,8 @@ void SampleData::applyDecodedSample (std::unique_ptr<DecodedSample> decoded)
 
     loadedFileName = decoded->fileName;
     loadedFilePath = decoded->filePath;
-    int frames = decoded->buffer.getNumSamples();
+    const int frames = decoded->decodedNumFrames > 0 ? decoded->decodedNumFrames
+                                                     : decoded->buffer.getNumSamples();
 
     // Convert to shared_ptr — no buffer copy, no heap allocation.
     auto shared = std::shared_ptr<const DecodedSample> (decoded.release());
@@ -132,6 +139,9 @@ void SampleData::applyDecodedSample (std::unique_ptr<DecodedSample> decoded)
     // Audio-thread reference (non-atomic, only written here on audio thread).
     activeDecoded = shared;
     numFrames.store (frames, std::memory_order_release);
+    decodedSampleRate.store (shared->decodedSampleRate, std::memory_order_release);
+    sourceNumFrames.store (shared->sourceNumFrames, std::memory_order_release);
+    sourceSampleRate.store (shared->sourceSampleRate, std::memory_order_release);
 
     // Publish the same object to UI via atomic snapshot.
 #if INTERSECT_HAS_STD_ATOMIC_SHARED_PTR
@@ -164,6 +174,9 @@ void SampleData::clear()
     loadedFileName.clear();
     loadedFilePath.clear();
     loaded.store (false, std::memory_order_release);
+    decodedSampleRate.store (0.0, std::memory_order_release);
+    sourceNumFrames.store (0, std::memory_order_release);
+    sourceSampleRate.store (0.0, std::memory_order_release);
 }
 
 SampleData::SnapshotPtr SampleData::getSnapshot() const

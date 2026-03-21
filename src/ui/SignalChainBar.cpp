@@ -489,7 +489,10 @@ void SignalChainBar::rebuildLayout()
     input.sampleMissing = ui.sampleMissing;
     input.hasValidSlice = ui.selectedSlice >= 0 && ui.selectedSlice < ui.numSlices;
     input.sliceScope = isSliceScopeActive();
-    input.sampleRate = processor.getSampleRate() > 0.0 ? (float) processor.getSampleRate() : 44100.0f;
+    const auto sampleSnap = processor.sampleData.getSnapshot();
+    input.sampleRate = (sampleSnap != nullptr && sampleSnap->decodedSampleRate > 0.0)
+        ? (float) sampleSnap->decodedSampleRate
+        : 44100.0f;
     input.selectedSlice = input.hasValidSlice ? &ui.slices[(size_t) ui.selectedSlice] : nullptr;
 
     contextTitle.clear();
@@ -595,9 +598,19 @@ void SignalChainBar::rebuildContextBar (const LayoutInput& input)
         // No tabs in expanded mode — slice info left, SLICES/ROOT right
         if (input.hasValidSlice && input.selectedSlice != nullptr)
         {
+            const int overrideCount = countAllEffectiveOverrides (*input.selectedSlice, input.globals);
+            const float lenSec = (float) (input.selectedSlice->endSample - input.selectedSlice->startSample) / input.sampleRate;
+            contextTitle = juce::String (input.selectedSlice->startSample) + "-"
+                         + juce::String (input.selectedSlice->endSample)
+                         + " (" + formatTrimmed (lenSec, 2) + "s)";
+            contextStatus = overrideCount > 0 ? juce::String (overrideCount) + " overrides" : juce::String();
+
+            const auto titleFont = IntersectLookAndFeel::makeFont (10.0f, false);
+            const float titleW = std::ceil (titleFont.getStringWidthFloat (contextTitle)) + 4.0f;
+
             contextRow.items.add (juce::FlexItem().withWidth (8.0f)); // left pad
             const int timeItemIndex = contextRow.items.size();
-            contextRow.items.add (juce::FlexItem().withWidth (42.0f));
+            contextRow.items.add (juce::FlexItem().withWidth (titleW));
             const int dot1ItemIndex = contextRow.items.size();
             contextRow.items.add (juce::FlexItem().withWidth (10.0f));
             const int noteItemIndex = contextRow.items.size();
@@ -624,11 +637,6 @@ void SignalChainBar::rebuildContextBar (const LayoutInput& input)
             contextStatusBounds = toIntBounds (contextRow.items[statusItemIndex].currentBounds);
             contextSlicesBounds = toIntBounds (contextRow.items[slicesItemIndex].currentBounds);
             contextRootBounds = toIntBounds (contextRow.items[rootItemIndex].currentBounds);
-
-            const int overrideCount = countAllEffectiveOverrides (*input.selectedSlice, input.globals);
-            const float lenSec = (float) (input.selectedSlice->endSample - input.selectedSlice->startSample) / input.sampleRate;
-            contextTitle = formatTrimmed (lenSec, 2) + "s";
-            contextStatus = overrideCount > 0 ? juce::String (overrideCount) + " overrides" : juce::String();
 
             Cell noteCell;
             noteCell.module = Module::Playback;
@@ -690,8 +698,18 @@ void SignalChainBar::rebuildContextBar (const LayoutInput& input)
 
     if (input.sliceScope && input.selectedSlice != nullptr)
     {
+        const int overrideCount = countAllEffectiveOverrides (*input.selectedSlice, input.globals);
+        const float lenSec = (float) (input.selectedSlice->endSample - input.selectedSlice->startSample) / input.sampleRate;
+        contextTitle = juce::String (input.selectedSlice->startSample) + "-"
+                     + juce::String (input.selectedSlice->endSample)
+                     + " (" + formatTrimmed (lenSec, 2) + "s)";
+        contextStatus = overrideCount > 0 ? juce::String (overrideCount) + " overrides" : juce::String();
+
+        const auto titleFont = IntersectLookAndFeel::makeFont (10.0f, false);
+        const float titleW = std::ceil (titleFont.getStringWidthFloat (contextTitle)) + 4.0f;
+
         const int timeItemIndex = contextRow.items.size();
-        contextRow.items.add (juce::FlexItem().withWidth (42.0f));
+        contextRow.items.add (juce::FlexItem().withWidth (titleW));
         const int dot1ItemIndex = contextRow.items.size();
         contextRow.items.add (juce::FlexItem().withWidth (10.0f));
         const int noteItemIndex = contextRow.items.size();
@@ -713,11 +731,6 @@ void SignalChainBar::rebuildContextBar (const LayoutInput& input)
         contextDot1Bounds = toIntBounds (contextRow.items[dot1ItemIndex].currentBounds);
         contextDot2Bounds = toIntBounds (contextRow.items[dot2ItemIndex].currentBounds);
         contextStatusBounds = toIntBounds (contextRow.items[statusItemIndex].currentBounds);
-
-        const int overrideCount = countAllEffectiveOverrides (*input.selectedSlice, input.globals);
-        const float lenSec = (float) (input.selectedSlice->endSample - input.selectedSlice->startSample) / input.sampleRate;
-        contextTitle = formatTrimmed (lenSec, 2) + "s";
-        contextStatus = overrideCount > 0 ? juce::String (overrideCount) + " overrides" : juce::String();
 
         Cell noteCell;
         noteCell.module = Module::Playback;
@@ -1410,10 +1423,9 @@ void SignalChainBar::paint (juce::Graphics& g)
 
     if (contextTitle.isNotEmpty())
     {
-        g.setFont (IntersectLookAndFeel::fitFontToWidth (contextTitle, 10.0f, 8.5f,
-                                                         juce::jmin (140, infoBounds.getWidth()), false));
+        g.setFont (IntersectLookAndFeel::makeFont (10.0f, false));
         g.setColour (getTheme().text0);
-        const int titleWidth = juce::jmin (128, infoBounds.getWidth());
+        const int titleWidth = infoBounds.getWidth();
         g.drawFittedText (contextTitle, infoX, infoBounds.getY(), titleWidth, infoBounds.getHeight(),
                           juce::Justification::centredLeft, 1);
         infoX += titleWidth + 8;
@@ -1847,7 +1859,10 @@ void SignalChainBar::showSetBpmPopup (bool sliceScope)
                     endSmp = s.endSample;
                 }
 
-                const float sampleRate = processor.getSampleRate() > 0.0 ? (float) processor.getSampleRate() : 44100.0f;
+                const auto sampleSnap = processor.sampleData.getSnapshot();
+                const float sampleRate = (sampleSnap != nullptr && sampleSnap->decodedSampleRate > 0.0)
+                    ? (float) sampleSnap->decodedSampleRate
+                    : 44100.0f;
                 const float newBpm = GrainEngine::calcStretchBpm (startSmp, endSmp, barCount, sampleRate);
                 if (auto* bpmParam = processor.apvts.getParameter (ParamIds::defaultBpm))
                 {

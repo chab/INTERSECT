@@ -30,6 +30,10 @@ public:
         std::array<PeakMipmap, kNumMipmapLevels> peakMipmaps;
         juce::String fileName;
         juce::String filePath;
+        int decodedNumFrames = 0;
+        double decodedSampleRate = 0.0;
+        int sourceNumFrames = 0;
+        double sourceSampleRate = 0.0;
     };
 
     using SnapshotPtr = std::shared_ptr<const DecodedSample>;
@@ -53,6 +57,9 @@ public:
 
     int getNumFrames() const { return numFrames.load (std::memory_order_acquire); }
     bool isLoaded() const { return loaded.load (std::memory_order_acquire); }
+    double getDecodedSampleRate() const { return decodedSampleRate.load (std::memory_order_acquire); }
+    int getSourceNumFrames() const { return sourceNumFrames.load (std::memory_order_acquire); }
+    double getSourceSampleRate() const { return sourceSampleRate.load (std::memory_order_acquire); }
 
     // Audio-thread only — returns the buffer from the active decoded sample.
     const juce::AudioBuffer<float>& getBuffer() const;
@@ -81,6 +88,9 @@ private:
     // Atomic metadata for cross-thread queries.
     std::atomic<int> numFrames { 0 };
     std::atomic<bool> loaded { false };
+    std::atomic<double> decodedSampleRate { 0.0 };
+    std::atomic<int> sourceNumFrames { 0 };
+    std::atomic<double> sourceSampleRate { 0.0 };
 
     juce::String loadedFileName;
     juce::String loadedFilePath;

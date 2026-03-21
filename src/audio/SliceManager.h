@@ -29,6 +29,14 @@ public:
 
     void setSlicePalette (const juce::Colour* p) { palette.store (p, std::memory_order_relaxed); }
 
+    void recolourFromPalette()
+    {
+        const auto* p = palette.load (std::memory_order_relaxed);
+        if (! p) return;
+        for (int i = 0; i < numSlices; ++i)
+            slices[i].colour = p[i % 16];
+    }
+
 private:
     std::atomic<const juce::Colour*> palette { nullptr };
 

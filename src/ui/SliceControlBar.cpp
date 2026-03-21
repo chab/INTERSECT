@@ -144,7 +144,7 @@ void SliceControlBar::paint (juce::Graphics& g)
 
         g.setFont (IntersectLookAndFeel::makeFont (14.0f));
         g.setColour (getTheme().text2.withAlpha (0.5f));
-        double srate = processor.getSampleRate();
+        double srate = processor.sampleData.getDecodedSampleRate();
         if (srate <= 0) srate = 44100.0;
         double lenSec = (s.endSample - s.startSample) / srate;
         juce::String seText = juce::String (s.startSample) + "-" + juce::String (s.endSample) +

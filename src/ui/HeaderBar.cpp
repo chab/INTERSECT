@@ -156,7 +156,7 @@ void HeaderBar::paint (juce::Graphics& g)
     }
     else if (ui.sampleLoaded)
     {
-        double srate = processor.getSampleRate();
+        double srate = ui.sampleSampleRate;
         if (srate <= 0.0)
             srate = 44100.0;
         const double lenSec = ui.sampleNumFrames / srate;

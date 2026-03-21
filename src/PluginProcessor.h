@@ -180,6 +180,7 @@ public:
         bool sampleLoaded = false;
         bool sampleMissing = false;
         int sampleNumFrames = 0;
+        double sampleSampleRate = 0.0;
         juce::String sampleFileName;
         std::array<Slice, SliceManager::kMaxSlices> slices {};
     };
@@ -193,6 +194,8 @@ public:
     {
         return uiSnapshotVersion.load (std::memory_order_acquire);
     }
+
+    void markUiSnapshotDirty() { uiSnapshotDirty.store (true, std::memory_order_release); }
 
     struct MidiBoundaryPreviewState
     {
@@ -287,6 +290,17 @@ private:
         juce::File file;
     };
 
+    struct PendingSliceTimelineRemap
+    {
+        std::atomic<bool> active { false };
+        std::atomic<int> expectedLoadToken { 0 };
+        std::atomic<int> savedStateVersion { 0 };
+        std::atomic<int> savedDecodedNumFrames { 0 };
+        std::atomic<double> savedDecodedSampleRate { 0.0 };
+        std::atomic<int> savedSourceNumFrames { 0 };
+        std::atomic<double> savedSourceSampleRate { 0.0 };
+    };
+
     void drainCommands();
     void handleCommand (const Command& cmd);
     void processMidi (juce::MidiBuffer& midi);
@@ -299,10 +313,17 @@ private:
     void setMidiBoundaryPreviewState (int sliceIdx, int startSample, int endSample, bool isStart);
     void commitMidiSliceBoundaryGestureIfIdle (int blockSamples);
     void clearMidiEditGestureState();
-    void requestSampleLoad (const juce::File& file, LoadKind kind);
+    int requestSampleLoad (const juce::File& file, LoadKind kind);
     void clearVoicesBeforeSampleSwap();
     void clampSlicesToSampleBounds();
     void publishUiSliceSnapshot();
+    void clearPendingSliceTimelineRemap();
+    void primePendingSliceTimelineRemap (int savedStateVersion,
+                                         int savedDecodedNumFrames,
+                                         double savedDecodedSampleRate,
+                                         int savedSourceNumFrames,
+                                         double savedSourceSampleRate);
+    bool applyPendingSliceTimelineRemap();
     UndoManager::Snapshot makeSnapshot();
     void captureSnapshot();
     void restoreSnapshot (const UndoManager::Snapshot& snap);
@@ -348,6 +369,7 @@ private:
     std::atomic<int> uiSliceSnapshotIndex { 0 };
     std::atomic<bool> uiSnapshotDirty { true };
     std::atomic<uint32_t> uiSnapshotVersion { 0 };
+    PendingSliceTimelineRemap pendingSliceTimelineRemap;
 
     bool heldNotes[128] = {};
 

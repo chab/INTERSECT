@@ -141,6 +141,10 @@ static Slice sanitiseRestoredSlice (Slice s)
     return s;
 }
 
+constexpr int kCurrentStateVersion = 22;
+constexpr std::array<double, 6> kLegacyCommonSampleRates { 44100.0, 48000.0, 88200.0,
+                                                           96000.0, 176400.0, 192000.0 };
+
 static bool isCoalescableCommand (IntersectProcessor::CommandType type)
 {
     return type == IntersectProcessor::CmdSetSliceParam
@@ -354,15 +358,35 @@ void IntersectProcessor::prepareToPlay (double sampleRate, int /*samplesPerBlock
     currentSampleRate = sampleRate;
     voicePool.setSampleRate (sampleRate);
     std::fill (std::begin (heldNotes), std::end (heldNotes), false);
+
+    const double decodedSampleRate = sampleData.getDecodedSampleRate();
+    if (sampleData.getFilePath().isNotEmpty()
+        && (decodedSampleRate <= 0.0 || std::abs (decodedSampleRate - sampleRate) > 0.01))
+    {
+        if (sampleData.isLoaded() && sampleData.getNumFrames() > 0)
+        {
+            primePendingSliceTimelineRemap (kCurrentStateVersion,
+                                            sampleData.getNumFrames(),
+                                            decodedSampleRate,
+                                            sampleData.getSourceNumFrames(),
+                                            sampleData.getSourceSampleRate());
+        }
+        requestSampleLoad (juce::File (sampleData.getFilePath()), LoadKindRelink);
+    }
 }
 
 void IntersectProcessor::releaseResources() {}
 
-void IntersectProcessor::requestSampleLoad (const juce::File& file, LoadKind kind)
+int IntersectProcessor::requestSampleLoad (const juce::File& file, LoadKind kind)
 {
     const int token = nextLoadToken.fetch_add (1, std::memory_order_relaxed) + 1;
     latestLoadToken.store (token, std::memory_order_release);
     latestLoadKind.store ((int) kind, std::memory_order_release);
+
+    if (kind == LoadKindReplace)
+        clearPendingSliceTimelineRemap();
+    else if (pendingSliceTimelineRemap.active.load (std::memory_order_acquire))
+        pendingSliceTimelineRemap.expectedLoadToken.store (token, std::memory_order_release);
 
     // Keep only the latest completed decode payload.
     auto* oldDecoded = completedLoadData.exchange (nullptr, std::memory_order_acq_rel);
@@ -381,7 +405,7 @@ void IntersectProcessor::requestSampleLoad (const juce::File& file, LoadKind kin
             auto* old = completedLoadFailure.exchange (payload, std::memory_order_acq_rel);
             delete old;
         }
-        return;
+        return token;
     }
 
     const double sr = currentSampleRate > 0.0 ? currentSampleRate : 44100.0;
@@ -411,6 +435,7 @@ void IntersectProcessor::requestSampleLoad (const juce::File& file, LoadKind kin
     };
 
     fileLoadPool.addJob (new SampleDecodeJob (file, sr, token, kind, onSuccess, onFailure), true);
+    return token;
 }
 
 void IntersectProcessor::loadFileAsync (const juce::File& file)
@@ -421,6 +446,133 @@ void IntersectProcessor::loadFileAsync (const juce::File& file)
 void IntersectProcessor::relinkFileAsync (const juce::File& file)
 {
     requestSampleLoad (file, LoadKindRelink);
+}
+
+void IntersectProcessor::clearPendingSliceTimelineRemap()
+{
+    pendingSliceTimelineRemap.active.store (false, std::memory_order_release);
+    pendingSliceTimelineRemap.expectedLoadToken.store (0, std::memory_order_release);
+    pendingSliceTimelineRemap.savedStateVersion.store (0, std::memory_order_release);
+    pendingSliceTimelineRemap.savedDecodedNumFrames.store (0, std::memory_order_release);
+    pendingSliceTimelineRemap.savedDecodedSampleRate.store (0.0, std::memory_order_release);
+    pendingSliceTimelineRemap.savedSourceNumFrames.store (0, std::memory_order_release);
+    pendingSliceTimelineRemap.savedSourceSampleRate.store (0.0, std::memory_order_release);
+}
+
+void IntersectProcessor::primePendingSliceTimelineRemap (int savedStateVersion,
+                                                         int savedDecodedNumFrames,
+                                                         double savedDecodedSampleRate,
+                                                         int savedSourceNumFrames,
+                                                         double savedSourceSampleRate)
+{
+    pendingSliceTimelineRemap.savedStateVersion.store (savedStateVersion, std::memory_order_release);
+    pendingSliceTimelineRemap.savedDecodedNumFrames.store (savedDecodedNumFrames, std::memory_order_release);
+    pendingSliceTimelineRemap.savedDecodedSampleRate.store (savedDecodedSampleRate, std::memory_order_release);
+    pendingSliceTimelineRemap.savedSourceNumFrames.store (savedSourceNumFrames, std::memory_order_release);
+    pendingSliceTimelineRemap.savedSourceSampleRate.store (savedSourceSampleRate, std::memory_order_release);
+    pendingSliceTimelineRemap.active.store (true, std::memory_order_release);
+}
+
+bool IntersectProcessor::applyPendingSliceTimelineRemap()
+{
+    if (! pendingSliceTimelineRemap.active.load (std::memory_order_acquire))
+        return false;
+
+    const int expectedToken = pendingSliceTimelineRemap.expectedLoadToken.load (std::memory_order_acquire);
+    if (expectedToken <= 0 || expectedToken != latestLoadToken.load (std::memory_order_acquire))
+        return false;
+
+    const int numSlices = sliceManager.getNumSlices();
+    if (numSlices <= 0)
+    {
+        clearPendingSliceTimelineRemap();
+        return false;
+    }
+
+    const auto sampleSnap = sampleData.getSnapshot();
+    if (sampleSnap == nullptr)
+        return false;
+
+    const int targetFrames = sampleSnap->decodedNumFrames > 0
+        ? sampleSnap->decodedNumFrames
+        : sampleSnap->buffer.getNumSamples();
+    const double targetRate = sampleSnap->decodedSampleRate;
+    if (targetFrames <= 0)
+        return false;
+
+    int sourceFrames = pendingSliceTimelineRemap.savedDecodedNumFrames.load (std::memory_order_acquire);
+    double sourceRate = pendingSliceTimelineRemap.savedDecodedSampleRate.load (std::memory_order_acquire);
+    const int savedStateVersion = pendingSliceTimelineRemap.savedStateVersion.load (std::memory_order_acquire);
+
+    if ((sourceFrames <= 0 || sourceRate <= 0.0) && savedStateVersion < kCurrentStateVersion)
+    {
+        int maxEnd = 0;
+        for (int i = 0; i < numSlices; ++i)
+            maxEnd = juce::jmax (maxEnd, sliceManager.getSlice (i).endSample);
+
+        int savedSourceFrames = pendingSliceTimelineRemap.savedSourceNumFrames.load (std::memory_order_acquire);
+        double savedSourceRate = pendingSliceTimelineRemap.savedSourceSampleRate.load (std::memory_order_acquire);
+        if (savedSourceFrames <= 0)
+            savedSourceFrames = sampleSnap->sourceNumFrames;
+        if (savedSourceRate <= 0.0)
+            savedSourceRate = sampleSnap->sourceSampleRate;
+        if (maxEnd > 0 && savedSourceFrames > 0 && savedSourceRate > 0.0)
+        {
+            const double sourceDurationSec = (double) savedSourceFrames / savedSourceRate;
+            if (sourceDurationSec > 0.0)
+            {
+                double bestRate = 0.0;
+                double bestError = 1.0e12;
+                for (double candidateRate : kLegacyCommonSampleRates)
+                {
+                    const double expectedFrames = sourceDurationSec * candidateRate;
+                    const double error = std::abs (expectedFrames - (double) maxEnd);
+                    if (error < bestError)
+                    {
+                        bestError = error;
+                        bestRate = candidateRate;
+                    }
+                }
+
+                if (bestRate > 0.0)
+                {
+                    const double expectedFrames = sourceDurationSec * bestRate;
+                    const double relativeError = expectedFrames > 0.0 ? bestError / expectedFrames : 1.0;
+                    if (relativeError <= 0.03)
+                    {
+                        sourceRate = bestRate;
+                        sourceFrames = juce::jmax (1, (int) std::round (expectedFrames));
+                    }
+                }
+            }
+        }
+    }
+
+    if (sourceFrames <= 0)
+    {
+        clearPendingSliceTimelineRemap();
+        return false;
+    }
+
+    const double ratio = (double) targetFrames / (double) sourceFrames;
+    const bool needsRemap = std::abs (ratio - 1.0) > 0.0001
+        || (sourceRate > 0.0 && targetRate > 0.0 && std::abs (sourceRate - targetRate) > 0.01);
+
+    if (! needsRemap)
+    {
+        clearPendingSliceTimelineRemap();
+        return false;
+    }
+
+    for (int i = 0; i < numSlices; ++i)
+    {
+        auto& s = sliceManager.getSlice (i);
+        s.startSample = juce::jmax (0, (int) std::round ((double) s.startSample * ratio));
+        s.endSample = juce::jmax (s.startSample + 1, (int) std::round ((double) s.endSample * ratio));
+    }
+
+    clearPendingSliceTimelineRemap();
+    return true;
 }
 
 void IntersectProcessor::clearVoicesBeforeSampleSwap()
@@ -470,6 +622,7 @@ void IntersectProcessor::publishUiSliceSnapshot()
     snap.sampleLoaded = (sampleSnap != nullptr);
     snap.sampleMissing = sampleMissing.load (std::memory_order_relaxed);
     snap.sampleNumFrames = sampleSnap ? sampleSnap->buffer.getNumSamples() : 0;
+    snap.sampleSampleRate = sampleSnap ? sampleSnap->decodedSampleRate : 0.0;
     if (sampleSnap != nullptr)
         snap.sampleFileName = sampleSnap->fileName;
     else if (snap.sampleMissing && missingFilePath.isNotEmpty())
@@ -813,8 +966,11 @@ void IntersectProcessor::handleCommand (const Command& cmd)
             if (sel >= 0 && sel < sliceManager.getNumSlices())
             {
                 auto& s = sliceManager.getSlice (sel);
+                const double timelineRate = sampleData.getDecodedSampleRate() > 0.0
+                    ? sampleData.getDecodedSampleRate()
+                    : currentSampleRate;
                 float newBpm = GrainEngine::calcStretchBpm (
-                    s.startSample, s.endSample, cmd.floatParam1, currentSampleRate);
+                    s.startSample, s.endSample, cmd.floatParam1, timelineRate);
                 s.bpm = newBpm;
                 s.lockMask |= kLockBpm;
             }
@@ -1611,6 +1767,7 @@ void IntersectProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                 sliceManager.clearAll();
             else
             {
+                applyPendingSliceTimelineRemap();
                 clampSlicesToSampleBounds();
                 sliceManager.rebuildMidiMap();
             }
@@ -1760,7 +1917,7 @@ void IntersectProcessor::getStateInformation (juce::MemoryBlock& destData)
     juce::MemoryOutputStream stream (destData, false);
 
     // Version
-    stream.writeInt (21);
+    stream.writeInt (kCurrentStateVersion);
 
     // APVTS state
     auto state = apvts.copyState();
@@ -1833,6 +1990,11 @@ void IntersectProcessor::getStateInformation (juce::MemoryBlock& destData)
     stream.writeString (sampleData.getFilePath());
     stream.writeString (sampleData.getFileName());
 
+    stream.writeInt (sampleData.getNumFrames());
+    stream.writeDouble (sampleData.getDecodedSampleRate());
+    stream.writeInt (sampleData.getSourceNumFrames());
+    stream.writeDouble (sampleData.getSourceSampleRate());
+
     // v12: snap-to-zero-crossing toggle
     stream.writeBool (snapToZeroCrossing.load());
 
@@ -1847,7 +2009,7 @@ void IntersectProcessor::setStateInformation (const void* data, int sizeInBytes)
     juce::MemoryInputStream stream (data, (size_t) sizeInBytes, false);
 
     int version = stream.readInt();
-    if (version != 19 && version != 20 && version != 21)
+    if (version != 19 && version != 20 && version != 21 && version != kCurrentStateVersion)
         return;
 
     // APVTS state
@@ -1934,6 +2096,18 @@ void IntersectProcessor::setStateInformation (const void* data, int sizeInBytes)
     // Path-based sample restore
     auto filePath = stream.readString();
     auto fileName = stream.readString();
+    int savedDecodedNumFrames = 0;
+    double savedDecodedSampleRate = 0.0;
+    int savedSourceNumFrames = 0;
+    double savedSourceSampleRate = 0.0;
+
+    if (version >= kCurrentStateVersion)
+    {
+        savedDecodedNumFrames = stream.readInt();
+        savedDecodedSampleRate = stream.readDouble();
+        savedSourceNumFrames = stream.readInt();
+        savedSourceSampleRate = stream.readDouble();
+    }
 
     clearVoicesBeforeSampleSwap();
     sampleData.clear();
@@ -1946,6 +2120,11 @@ void IntersectProcessor::setStateInformation (const void* data, int sizeInBytes)
         sampleData.setFileName (fileName.isNotEmpty() ? fileName : restoredFile.getFileName());
         sampleData.setFilePath (filePath);
         sampleAvailability.store ((int) SampleStateEmpty, std::memory_order_relaxed);
+        primePendingSliceTimelineRemap (version,
+                                        savedDecodedNumFrames,
+                                        savedDecodedSampleRate,
+                                        savedSourceNumFrames,
+                                        savedSourceSampleRate);
         // Preserve restored slices while loading, and report missing path via relink state.
         requestSampleLoad (restoredFile, LoadKindRelink);
     }
@@ -1956,6 +2135,7 @@ void IntersectProcessor::setStateInformation (const void* data, int sizeInBytes)
         sampleData.setFileName ({});
         sampleData.setFilePath ({});
         sampleAvailability.store ((int) SampleStateEmpty, std::memory_order_relaxed);
+        clearPendingSliceTimelineRemap();
     }
 
     sliceManager.rebuildMidiMap();

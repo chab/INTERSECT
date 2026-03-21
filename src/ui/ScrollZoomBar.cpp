@@ -31,7 +31,7 @@ void ScrollZoomBar::paint (juce::Graphics& g)
     float viewStart = sc * (1.0f - viewFrac);
     float viewEnd = viewStart + viewFrac;
 
-    double sampleRate = processor.getSampleRate();
+    double sampleRate = sampleSnap->decodedSampleRate;
     if (sampleRate <= 0.0)
         sampleRate = 44100.0;
 
