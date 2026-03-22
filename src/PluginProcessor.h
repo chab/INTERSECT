@@ -396,7 +396,7 @@ private:
     std::atomic<uint32_t> uiSnapshotVersion { 0 };
     PendingSliceTimelineRemap pendingSliceTimelineRemap;
 
-    bool heldNotes[128] = {};
+    std::array<bool, 128> heldNotes {};
 
     std::array<ParamUndoState, 2> pendingParamRestoreStates {};
     std::atomic<int> pendingParamRestoreIndex { -1 };

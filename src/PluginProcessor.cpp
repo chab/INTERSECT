@@ -1848,6 +1848,11 @@ void IntersectProcessor::processMidi (juce::MidiBuffer& midi)
 
 static inline float sanitiseSample (float x)
 {
+#if JUCE_DEBUG
+    if (std::isfinite (x))
+        jassert (std::abs (x) < 10.0f);
+#endif
+
     if (! std::isfinite (x)) return 0.0f;
     return juce::jlimit (-1.0f, 1.0f, x);
 }

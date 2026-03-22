@@ -46,7 +46,6 @@ public:
     // Audio-thread safe: converts unique_ptr to shared_ptr (no buffer copy).
     void applyDecodedSample (std::unique_ptr<DecodedSample> decoded);
 
-    bool loadFromFile (const juce::File& file, double projectSampleRate);
     void clear();
 
     // Thread-safe snapshot for UI access.

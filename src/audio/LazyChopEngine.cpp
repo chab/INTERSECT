@@ -42,11 +42,16 @@ void LazyChopEngine::startPreview (VoicePool& voicePool, int fromPos)
 
 void LazyChopEngine::stop (VoicePool& voicePool, SliceManager& /*sliceMgr*/)
 {
-    // Stop preview voice
+    // Release the preview voice with the same short fade used by other hard-stop paths.
     auto& v = voicePool.getVoice (getPreviewVoiceIndex());
-    v.active = false;
-    v.stretchActive = false;
-    v.bungeeActive = false;
+    if (v.active)
+    {
+        v.looping = false;
+        v.pingPong = false;
+        v.releaseTail = false;
+        v.envelope.forceRelease (VoicePool::kKillReleaseSec, voicePool.getSampleRate());
+        v.filterEnvelope.forceRelease (VoicePool::kKillReleaseSec, voicePool.getSampleRate());
+    }
 
     active = false;
     playing = false;

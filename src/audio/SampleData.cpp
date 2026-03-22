@@ -150,15 +150,6 @@ void SampleData::applyDecodedSample (std::unique_ptr<DecodedSample> decoded)
     loaded.store (true, std::memory_order_release);
 }
 
-bool SampleData::loadFromFile (const juce::File& file, double projectSampleRate)
-{
-    auto decoded = decodeFromFile (file, projectSampleRate);
-    if (decoded == nullptr)
-        return false;
-    applyDecodedSample (std::move (decoded));
-    return true;
-}
-
 void SampleData::clear()
 {
     activeDecoded.reset();
