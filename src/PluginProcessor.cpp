@@ -310,29 +310,173 @@ IntersectProcessor::IntersectProcessor()
     filterResoParam = apvts.getRawParameterValue (ParamIds::defaultFilterReso);
     filterDriveParam = apvts.getRawParameterValue (ParamIds::defaultFilterDrive);
     filterKeyTrackParam = apvts.getRawParameterValue (ParamIds::defaultFilterKeyTrack);
-    filterEnvAttackParam = apvts.getRawParameterValue (ParamIds::defaultFilterEnvAttack);
-    filterEnvDecayParam = apvts.getRawParameterValue (ParamIds::defaultFilterEnvDecay);
-    filterEnvSustainParam = apvts.getRawParameterValue (ParamIds::defaultFilterEnvSustain);
-    filterEnvReleaseParam = apvts.getRawParameterValue (ParamIds::defaultFilterEnvRelease);
-    filterEnvAmountParam = apvts.getRawParameterValue (ParamIds::defaultFilterEnvAmount);
-    cachedApvtsState = apvts.copyState();
-    publishUiSliceSnapshot();
+	    filterEnvAttackParam = apvts.getRawParameterValue (ParamIds::defaultFilterEnvAttack);
+	    filterEnvDecayParam = apvts.getRawParameterValue (ParamIds::defaultFilterEnvDecay);
+	    filterEnvSustainParam = apvts.getRawParameterValue (ParamIds::defaultFilterEnvSustain);
+	    filterEnvReleaseParam = apvts.getRawParameterValue (ParamIds::defaultFilterEnvRelease);
+	    filterEnvAmountParam = apvts.getRawParameterValue (ParamIds::defaultFilterEnvAmount);
+	    uiScaleParam = apvts.getRawParameterValue (ParamIds::uiScale);
+	    publishUiSliceSnapshot();
 }
 
 IntersectProcessor::~IntersectProcessor()
 {
-    fileLoadPool.removeAllJobs (true, 5000);
-    auto* pending = completedLoadData.exchange (nullptr, std::memory_order_acq_rel);
-    delete pending;
-    auto* failed = completedLoadFailure.exchange (nullptr, std::memory_order_acq_rel);
-    delete failed;
-    auto* pendingRestore = pendingApvtsRestore.exchange (nullptr, std::memory_order_acq_rel);
-    delete pendingRestore;
+	    fileLoadPool.removeAllJobs (true, 5000);
+	    auto* pending = completedLoadData.exchange (nullptr, std::memory_order_acq_rel);
+	    delete pending;
+	    auto* failed = completedLoadFailure.exchange (nullptr, std::memory_order_acq_rel);
+	    delete failed;
 }
 
 GlobalParamSnapshot IntersectProcessor::loadGlobalParamSnapshot() const
 {
     return GlobalParamSnapshot::loadFrom (apvts, sliceManager.rootNote.load());
+}
+
+void IntersectProcessor::setMissingFileInfo (const RtText<512>& fileName, const RtText<4096>& filePath)
+{
+    const int writeIndex = 1 - missingFileInfoIndex.load (std::memory_order_relaxed);
+    missingFileInfos[(size_t) writeIndex].fileName = fileName;
+    missingFileInfos[(size_t) writeIndex].filePath = filePath;
+    missingFileInfoIndex.store (writeIndex, std::memory_order_release);
+}
+
+void IntersectProcessor::clearMissingFileInfo()
+{
+    const int writeIndex = 1 - missingFileInfoIndex.load (std::memory_order_relaxed);
+    missingFileInfos[(size_t) writeIndex] = {};
+    missingFileInfoIndex.store (writeIndex, std::memory_order_release);
+}
+
+const IntersectProcessor::MissingFileInfo& IntersectProcessor::getMissingFileInfo() const
+{
+    return missingFileInfos[(size_t) missingFileInfoIndex.load (std::memory_order_acquire)];
+}
+
+void IntersectProcessor::setUiStatusMessage (const juce::String& text, bool isWarning)
+{
+    const int writeIndex = 1 - uiStatusMessageIndex.load (std::memory_order_relaxed);
+    auto& status = uiStatusMessages[(size_t) writeIndex];
+    status.text.assign (text);
+    status.isWarning = isWarning;
+    uiStatusMessageIndex.store (writeIndex, std::memory_order_release);
+}
+
+void IntersectProcessor::clearUiStatusMessage()
+{
+    const int writeIndex = 1 - uiStatusMessageIndex.load (std::memory_order_relaxed);
+    uiStatusMessages[(size_t) writeIndex] = {};
+    uiStatusMessageIndex.store (writeIndex, std::memory_order_release);
+}
+
+const IntersectProcessor::UiStatusMessage& IntersectProcessor::getUiStatusMessage() const
+{
+    return uiStatusMessages[(size_t) uiStatusMessageIndex.load (std::memory_order_acquire)];
+}
+
+void IntersectProcessor::setPendingStateFile (const juce::File& file)
+{
+    const juce::ScopedLock sl (pendingStateFileLock);
+    pendingStateFile = file;
+}
+
+void IntersectProcessor::clearPendingStateFile()
+{
+    const juce::ScopedLock sl (pendingStateFileLock);
+    pendingStateFile = {};
+}
+
+juce::File IntersectProcessor::getPendingStateFile() const
+{
+    const juce::ScopedLock sl (pendingStateFileLock);
+    return pendingStateFile;
+}
+
+ParamUndoState IntersectProcessor::captureParamUndoState() const
+{
+    const auto load = [] (const std::atomic<float>* param, float fallback)
+    {
+        return param != nullptr ? param->load (std::memory_order_relaxed) : fallback;
+    };
+
+    ParamUndoState state;
+    state.masterVolume = load (masterVolParam, state.masterVolume);
+    state.defaultBpm = load (bpmParam, state.defaultBpm);
+    state.defaultPitch = load (pitchParam, state.defaultPitch);
+    state.defaultAlgorithm = load (algoParam, state.defaultAlgorithm);
+    state.defaultAttack = load (attackParam, state.defaultAttack);
+    state.defaultDecay = load (decayParam, state.defaultDecay);
+    state.defaultSustain = load (sustainParam, state.defaultSustain);
+    state.defaultRelease = load (releaseParam, state.defaultRelease);
+    state.defaultMuteGroup = load (muteGroupParam, state.defaultMuteGroup);
+    state.defaultLoop = load (loopParam, state.defaultLoop);
+    state.defaultStretchEnabled = load (stretchParam, state.defaultStretchEnabled);
+    state.defaultTonality = load (tonalityParam, state.defaultTonality);
+    state.defaultFormant = load (formantParam, state.defaultFormant);
+    state.defaultFormantComp = load (formantCompParam, state.defaultFormantComp);
+    state.defaultGrainMode = load (grainModeParam, state.defaultGrainMode);
+    state.defaultReleaseTail = load (releaseTailParam, state.defaultReleaseTail);
+    state.defaultReverse = load (reverseParam, state.defaultReverse);
+    state.defaultOneShot = load (oneShotParam, state.defaultOneShot);
+    state.defaultCentsDetune = load (centsDetuneParam, state.defaultCentsDetune);
+    state.defaultFilterEnabled = load (filterEnabledParam, state.defaultFilterEnabled);
+    state.defaultFilterType = load (filterTypeParam, state.defaultFilterType);
+    state.defaultFilterSlope = load (filterSlopeParam, state.defaultFilterSlope);
+    state.defaultFilterCutoff = load (filterCutoffParam, state.defaultFilterCutoff);
+    state.defaultFilterReso = load (filterResoParam, state.defaultFilterReso);
+    state.defaultFilterDrive = load (filterDriveParam, state.defaultFilterDrive);
+    state.defaultFilterKeyTrack = load (filterKeyTrackParam, state.defaultFilterKeyTrack);
+    state.defaultFilterEnvAttack = load (filterEnvAttackParam, state.defaultFilterEnvAttack);
+    state.defaultFilterEnvDecay = load (filterEnvDecayParam, state.defaultFilterEnvDecay);
+    state.defaultFilterEnvSustain = load (filterEnvSustainParam, state.defaultFilterEnvSustain);
+    state.defaultFilterEnvRelease = load (filterEnvReleaseParam, state.defaultFilterEnvRelease);
+    state.defaultFilterEnvAmount = load (filterEnvAmountParam, state.defaultFilterEnvAmount);
+    state.maxVoices = load (maxVoicesParam, state.maxVoices);
+    state.uiScale = load (uiScaleParam, state.uiScale);
+    return state;
+}
+
+void IntersectProcessor::applyParamUndoState (const ParamUndoState& state)
+{
+    const auto apply = [this] (const juce::String& paramId, float value)
+    {
+        if (auto* param = dynamic_cast<juce::RangedAudioParameter*> (apvts.getParameter (paramId)))
+            param->setValueNotifyingHost (param->convertTo0to1 (value));
+    };
+
+    apply (ParamIds::masterVolume, state.masterVolume);
+    apply (ParamIds::defaultBpm, state.defaultBpm);
+    apply (ParamIds::defaultPitch, state.defaultPitch);
+    apply (ParamIds::defaultAlgorithm, state.defaultAlgorithm);
+    apply (ParamIds::defaultAttack, state.defaultAttack);
+    apply (ParamIds::defaultDecay, state.defaultDecay);
+    apply (ParamIds::defaultSustain, state.defaultSustain);
+    apply (ParamIds::defaultRelease, state.defaultRelease);
+    apply (ParamIds::defaultMuteGroup, state.defaultMuteGroup);
+    apply (ParamIds::defaultLoop, state.defaultLoop);
+    apply (ParamIds::defaultStretchEnabled, state.defaultStretchEnabled);
+    apply (ParamIds::defaultTonality, state.defaultTonality);
+    apply (ParamIds::defaultFormant, state.defaultFormant);
+    apply (ParamIds::defaultFormantComp, state.defaultFormantComp);
+    apply (ParamIds::defaultGrainMode, state.defaultGrainMode);
+    apply (ParamIds::defaultReleaseTail, state.defaultReleaseTail);
+    apply (ParamIds::defaultReverse, state.defaultReverse);
+    apply (ParamIds::defaultOneShot, state.defaultOneShot);
+    apply (ParamIds::defaultCentsDetune, state.defaultCentsDetune);
+    apply (ParamIds::defaultFilterEnabled, state.defaultFilterEnabled);
+    apply (ParamIds::defaultFilterType, state.defaultFilterType);
+    apply (ParamIds::defaultFilterSlope, state.defaultFilterSlope);
+    apply (ParamIds::defaultFilterCutoff, state.defaultFilterCutoff);
+    apply (ParamIds::defaultFilterReso, state.defaultFilterReso);
+    apply (ParamIds::defaultFilterDrive, state.defaultFilterDrive);
+    apply (ParamIds::defaultFilterKeyTrack, state.defaultFilterKeyTrack);
+    apply (ParamIds::defaultFilterEnvAttack, state.defaultFilterEnvAttack);
+    apply (ParamIds::defaultFilterEnvDecay, state.defaultFilterEnvDecay);
+    apply (ParamIds::defaultFilterEnvSustain, state.defaultFilterEnvSustain);
+    apply (ParamIds::defaultFilterEnvRelease, state.defaultFilterEnvRelease);
+    apply (ParamIds::defaultFilterEnvAmount, state.defaultFilterEnvAmount);
+    apply (ParamIds::maxVoices, state.maxVoices);
+    apply (ParamIds::uiScale, state.uiScale);
 }
 
 bool IntersectProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
@@ -359,19 +503,21 @@ void IntersectProcessor::prepareToPlay (double sampleRate, int /*samplesPerBlock
     voicePool.setSampleRate (sampleRate);
     std::fill (std::begin (heldNotes), std::end (heldNotes), false);
 
-    const double decodedSampleRate = sampleData.getDecodedSampleRate();
-    if (sampleData.getFilePath().isNotEmpty()
-        && (decodedSampleRate <= 0.0 || std::abs (decodedSampleRate - sampleRate) > 0.01))
+    auto sampleSnap = sampleData.getSnapshot();
+    if (sampleSnap != nullptr
+        && sampleSnap->filePath.isNotEmpty()
+        && (sampleSnap->decodedSampleRate <= 0.0
+            || std::abs (sampleSnap->decodedSampleRate - sampleRate) > 0.01))
     {
         if (sampleData.isLoaded() && sampleData.getNumFrames() > 0)
         {
             primePendingSliceTimelineRemap (kCurrentStateVersion,
                                             sampleData.getNumFrames(),
-                                            decodedSampleRate,
+                                            sampleSnap->decodedSampleRate,
                                             sampleData.getSourceNumFrames(),
                                             sampleData.getSourceSampleRate());
         }
-        requestSampleLoad (juce::File (sampleData.getFilePath()), LoadKindRelink);
+        requestSampleLoad (juce::File (sampleSnap->filePath), LoadKindRelink);
     }
 }
 
@@ -401,7 +547,8 @@ int IntersectProcessor::requestSampleLoad (const juce::File& file, LoadKind kind
             auto* payload = new FailedLoadResult();
             payload->token = token;
             payload->kind = kind;
-            payload->file = file;
+            payload->fileName.assign (file.getFileName());
+            payload->filePath.assign (file.getFullPathName());
             auto* old = completedLoadFailure.exchange (payload, std::memory_order_acq_rel);
             delete old;
         }
@@ -429,7 +576,8 @@ int IntersectProcessor::requestSampleLoad (const juce::File& file, LoadKind kind
         auto* payload = new FailedLoadResult();
         payload->token = finishedToken;
         payload->kind = finishedKind;
-        payload->file = failedFile;
+        payload->fileName.assign (failedFile.getFileName());
+        payload->filePath.assign (failedFile.getFullPathName());
         auto* old = completedLoadFailure.exchange (payload, std::memory_order_acq_rel);
         delete old;
     };
@@ -440,11 +588,13 @@ int IntersectProcessor::requestSampleLoad (const juce::File& file, LoadKind kind
 
 void IntersectProcessor::loadFileAsync (const juce::File& file)
 {
+    pendingStateRestoreToken.store (0, std::memory_order_release);
     requestSampleLoad (file, LoadKindReplace);
 }
 
 void IntersectProcessor::relinkFileAsync (const juce::File& file)
 {
+    pendingStateRestoreToken.store (0, std::memory_order_release);
     requestSampleLoad (file, LoadKindRelink);
 }
 
@@ -616,6 +766,8 @@ void IntersectProcessor::publishUiSliceSnapshot()
     const int writeIndex = 1 - uiSliceSnapshotIndex.load (std::memory_order_relaxed);
     auto& snap = uiSliceSnapshots[(size_t) writeIndex];
     auto sampleSnap = sampleData.getSnapshot();
+    const auto& missingInfo = getMissingFileInfo();
+    const auto& status = getUiStatusMessage();
     snap.numSlices = sliceManager.getNumSlices();
     snap.selectedSlice = sliceManager.selectedSlice.load (std::memory_order_relaxed);
     snap.rootNote = sliceManager.rootNote.load (std::memory_order_relaxed);
@@ -623,12 +775,13 @@ void IntersectProcessor::publishUiSliceSnapshot()
     snap.sampleMissing = sampleMissing.load (std::memory_order_relaxed);
     snap.sampleNumFrames = sampleSnap ? sampleSnap->buffer.getNumSamples() : 0;
     snap.sampleSampleRate = sampleSnap ? sampleSnap->decodedSampleRate : 0.0;
+    snap.hasStatusMessage = ! status.text.isEmpty();
+    snap.statusIsWarning = status.isWarning;
+    snap.statusMessage = status.text;
     if (sampleSnap != nullptr)
-        snap.sampleFileName = sampleSnap->fileName;
-    else if (snap.sampleMissing && missingFilePath.isNotEmpty())
-        snap.sampleFileName = juce::File (missingFilePath).getFileName();
-    else if (sampleData.getFileName().isNotEmpty())
-        snap.sampleFileName = sampleData.getFileName();
+        snap.sampleFileName.assign (sampleSnap->fileName);
+    else if (snap.sampleMissing)
+        snap.sampleFileName = missingInfo.fileName;
     else
         snap.sampleFileName.clear();
 
@@ -837,13 +990,7 @@ UndoManager::Snapshot IntersectProcessor::makeSnapshot()
     snap.selectedSlice = sliceManager.selectedSlice;
     snap.rootNote = sliceManager.rootNote.load();
 
-    // Use cached APVTS state instead of calling copyState() on the audio thread.
-    // The cache is updated by the message thread via cacheApvtsState().
-    {
-        const juce::ScopedLock sl (cachedApvtsLock);
-        snap.apvtsState = cachedApvtsState;
-    }
-
+    snap.params = captureParamUndoState();
     snap.midiSelectsSlice = midiSelectsSlice.load();
     snap.snapToZeroCrossing = snapToZeroCrossing.load();
     return snap;
@@ -867,29 +1014,18 @@ void IntersectProcessor::restoreSnapshot (const UndoManager::Snapshot& snap)
     sliceManager.rebuildMidiMap();
     uiSnapshotDirty.store (true, std::memory_order_release);
 
-    // Defer APVTS restore to the message thread (replaceState allocates).
-    auto* pending = new juce::ValueTree (snap.apvtsState);
-    auto* old = pendingApvtsRestore.exchange (pending, std::memory_order_acq_rel);
-    delete old;
+    const int writeIndex = pendingParamRestoreIndex.load (std::memory_order_relaxed) == 0 ? 1 : 0;
+    pendingParamRestoreStates[(size_t) writeIndex] = snap.params;
+    pendingParamRestoreIndex.store (writeIndex, std::memory_order_release);
 }
 
-void IntersectProcessor::cacheApvtsState()
+bool IntersectProcessor::applyDeferredParamRestore()
 {
-    auto state = apvts.copyState();
-    const juce::ScopedLock sl (cachedApvtsLock);
-    cachedApvtsState = state;
-}
-
-bool IntersectProcessor::applyDeferredApvtsRestore()
-{
-    auto* pending = pendingApvtsRestore.exchange (nullptr, std::memory_order_acq_rel);
-    if (pending == nullptr)
+    const int pendingIndex = pendingParamRestoreIndex.exchange (-1, std::memory_order_acq_rel);
+    if (pendingIndex < 0)
         return false;
 
-    apvts.replaceState (*pending);
-    delete pending;
-    // Re-cache after restore so future snapshots use the restored state.
-    cacheApvtsState();
+    applyParamUndoState (pendingParamRestoreStates[(size_t) pendingIndex]);
     return true;
 }
 
@@ -1297,16 +1433,7 @@ void IntersectProcessor::handleCommand (const Command& cmd)
             break;
 
         case CmdFileLoadFailed:
-            if (cmd.intParam1 == latestLoadToken.load (std::memory_order_acquire)
-                && cmd.intParam2 == (int) LoadKindRelink)
-            {
-                sampleMissing.store (true);
-                missingFilePath = cmd.fileParam.getFullPathName();
-                sampleData.setFileName (cmd.fileParam.getFileName());
-                sampleData.setFilePath (cmd.fileParam.getFullPathName());
-                sampleAvailability.store ((int) SampleStateMissingAwaitingRelink,
-                                         std::memory_order_relaxed);
-            }
+            jassertfalse; // Legacy path no longer used; failures arrive via completedLoadFailure.
             break;
 
         case CmdUndo:
@@ -1650,6 +1777,9 @@ void IntersectProcessor::processMidi (juce::MidiBuffer& midi)
                 const auto& sliceIndices = sliceManager.midiNoteToSlices (note);
                 for (int sliceIdx : sliceIndices)
                 {
+                    if (! juce::isPositiveAndBelow (sliceIdx, sliceManager.getNumSlices()))
+                        continue;
+
                     if (midiSelectsSlice.load (std::memory_order_relaxed))
                     {
                         const int previous = sliceManager.selectedSlice.load (std::memory_order_relaxed);
@@ -1757,13 +1887,16 @@ void IntersectProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         if (rawDecoded != nullptr)
         {
             std::unique_ptr<SampleData::DecodedSample> decoded (rawDecoded);
+            const int currentToken = latestLoadToken.load (std::memory_order_acquire);
+            const bool isStateRestoreLoad = pendingStateRestoreToken.load (std::memory_order_acquire) == currentToken;
             clearVoicesBeforeSampleSwap();
             sampleData.applyDecodedSample (std::move (decoded));
             sampleMissing.store (false);
-            missingFilePath.clear();
+            clearMissingFileInfo();
             sampleAvailability.store ((int) SampleStateLoaded, std::memory_order_relaxed);
 
-            if (latestLoadKind.load (std::memory_order_acquire) == (int) LoadKindReplace)
+            if (! isStateRestoreLoad
+                && latestLoadKind.load (std::memory_order_acquire) == (int) LoadKindReplace)
                 sliceManager.clearAll();
             else
             {
@@ -1771,6 +1904,10 @@ void IntersectProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                 clampSlicesToSampleBounds();
                 sliceManager.rebuildMidiMap();
             }
+
+            if (isStateRestoreLoad)
+                pendingStateRestoreToken.store (0, std::memory_order_release);
+
             loadStateChanged = true;
             uiSnapshotDirty.store (true, std::memory_order_release);
         }
@@ -1781,15 +1918,18 @@ void IntersectProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         if (rawFailure != nullptr)
         {
             std::unique_ptr<FailedLoadResult> failed (rawFailure);
+            const bool isStateRestoreLoad = pendingStateRestoreToken.load (std::memory_order_acquire) == failed->token;
             if (failed->token == latestLoadToken.load (std::memory_order_acquire)
                 && failed->kind == LoadKindRelink)
             {
                 sampleMissing.store (true);
-                missingFilePath = failed->file.getFullPathName();
-                sampleData.setFileName (failed->file.getFileName());
-                sampleData.setFilePath (failed->file.getFullPathName());
+                setMissingFileInfo (failed->fileName, failed->filePath);
                 sampleAvailability.store ((int) SampleStateMissingAwaitingRelink,
                                          std::memory_order_relaxed);
+
+                if (isStateRestoreLoad)
+                    pendingStateRestoreToken.store (0, std::memory_order_release);
+
                 loadStateChanged = true;
                 uiSnapshotDirty.store (true, std::memory_order_release);
             }
@@ -1883,6 +2023,7 @@ void IntersectProcessor::processBlock (juce::AudioBuffer<float>& buffer,
 
             // Always process preview voice (LazyChopEngine) on main bus
             if (previewIdx >= voicePool.getMaxActiveVoices()
+                && juce::isPositiveAndBelow (previewIdx, VoicePool::kMaxVoices)
                 && voicePool.getVoice (previewIdx).active)
             {
                 float vL = 0.0f, vR = 0.0f;
@@ -1987,8 +2128,30 @@ void IntersectProcessor::getStateInformation (juce::MemoryBlock& destData)
     }
 
     // v9: store file path only (no PCM)
-    stream.writeString (sampleData.getFilePath());
-    stream.writeString (sampleData.getFileName());
+    juce::String filePath;
+    juce::String fileName;
+    if (auto sampleSnap = sampleData.getSnapshot())
+    {
+        filePath = sampleSnap->filePath;
+        fileName = sampleSnap->fileName;
+    }
+    else if (sampleMissing.load (std::memory_order_relaxed))
+    {
+        const auto& missingInfo = getMissingFileInfo();
+        filePath = missingInfo.filePath.toString();
+        fileName = missingInfo.fileName.toString();
+    }
+    else
+    {
+        const auto pendingFile = getPendingStateFile();
+        if (pendingFile != juce::File())
+        {
+            filePath = pendingFile.getFullPathName();
+            fileName = pendingFile.getFileName();
+        }
+    }
+    stream.writeString (filePath);
+    stream.writeString (fileName);
 
     stream.writeInt (sampleData.getNumFrames());
     stream.writeDouble (sampleData.getDecodedSampleRate());
@@ -2007,10 +2170,20 @@ void IntersectProcessor::getStateInformation (juce::MemoryBlock& destData)
 void IntersectProcessor::setStateInformation (const void* data, int sizeInBytes)
 {
     juce::MemoryInputStream stream (data, (size_t) sizeInBytes, false);
+    pendingStateRestoreToken.store (0, std::memory_order_release);
 
     int version = stream.readInt();
     if (version != 19 && version != 20 && version != 21 && version != kCurrentStateVersion)
+    {
+        setUiStatusMessage ("Unsupported project state version v" + juce::String (version)
+                            + ". This build supports v19-v" + juce::String (kCurrentStateVersion) + ".",
+                            true);
+        uiSnapshotDirty.store (true, std::memory_order_release);
+        publishUiSliceSnapshot();
         return;
+    }
+
+    clearUiStatusMessage();
 
     // APVTS state
     auto xmlString = stream.readString();
@@ -2116,9 +2289,8 @@ void IntersectProcessor::setStateInformation (const void* data, int sizeInBytes)
     {
         const juce::File restoredFile (filePath);
         sampleMissing.store (false);
-        missingFilePath.clear();
-        sampleData.setFileName (fileName.isNotEmpty() ? fileName : restoredFile.getFileName());
-        sampleData.setFilePath (filePath);
+        clearMissingFileInfo();
+        setPendingStateFile (restoredFile);
         sampleAvailability.store ((int) SampleStateEmpty, std::memory_order_relaxed);
         primePendingSliceTimelineRemap (version,
                                         savedDecodedNumFrames,
@@ -2126,14 +2298,14 @@ void IntersectProcessor::setStateInformation (const void* data, int sizeInBytes)
                                         savedSourceNumFrames,
                                         savedSourceSampleRate);
         // Preserve restored slices while loading, and report missing path via relink state.
-        requestSampleLoad (restoredFile, LoadKindRelink);
+        pendingStateRestoreToken.store (requestSampleLoad (restoredFile, LoadKindRelink),
+                                        std::memory_order_release);
     }
     else
     {
         sampleMissing.store (false);
-        missingFilePath.clear();
-        sampleData.setFileName ({});
-        sampleData.setFilePath ({});
+        clearMissingFileInfo();
+        clearPendingStateFile();
         sampleAvailability.store ((int) SampleStateEmpty, std::memory_order_relaxed);
         clearPendingSliceTimelineRemap();
     }

@@ -67,12 +67,6 @@ public:
     // Audio-thread only — returns mipmaps from the active decoded sample.
     const std::array<PeakMipmap, kNumMipmapLevels>& getMipmaps() const;
 
-    const juce::String& getFileName() const { return loadedFileName; }
-    void setFileName (const juce::String& name) { loadedFileName = name; }
-
-    const juce::String& getFilePath() const { return loadedFilePath; }
-    void setFilePath (const juce::String& path) { loadedFilePath = path; }
-
 private:
     // Audio-thread-only strong reference to the current sample.
     // Written only on the audio thread (in applyDecodedSample / clear).
@@ -92,6 +86,4 @@ private:
     std::atomic<int> sourceNumFrames { 0 };
     std::atomic<double> sourceSampleRate { 0.0 };
 
-    juce::String loadedFileName;
-    juce::String loadedFilePath;
 };

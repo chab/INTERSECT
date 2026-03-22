@@ -2,6 +2,7 @@
 #include "Slice.h"
 #include <array>
 #include <atomic>
+#include <juce_core/juce_core.h>
 
 class SliceManager
 {
@@ -19,8 +20,17 @@ public:
 
     float resolveParam (int sliceIdx, LockBit lockBit, float sliceValue, float globalDefault) const;
 
-    Slice& getSlice (int idx) { return slices[idx]; }
-    const Slice& getSlice (int idx) const { return slices[idx]; }
+    Slice& getSlice (int idx)
+    {
+        jassert (juce::isPositiveAndBelow (idx, kMaxSlices));
+        return slices[(size_t) idx];
+    }
+
+    const Slice& getSlice (int idx) const
+    {
+        jassert (juce::isPositiveAndBelow (idx, kMaxSlices));
+        return slices[(size_t) idx];
+    }
     int getNumSlices() const { return numSlices; }
     void setNumSlices (int n) { numSlices = juce::jlimit (0, kMaxSlices, n); }
 

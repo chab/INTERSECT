@@ -1,8 +1,8 @@
 #pragma once
-#include <deque>
-#include <juce_data_structures/juce_data_structures.h>
+#include <array>
 #include "audio/Slice.h"
 #include "audio/SliceManager.h"
+#include "params/ParamUndoState.h"
 
 class UndoManager
 {
@@ -15,64 +15,114 @@ public:
         int numSlices = 0;
         int selectedSlice = -1;
         int rootNote = 36;
-        juce::ValueTree apvtsState;
+        ParamUndoState params;
         bool midiSelectsSlice = false;
         bool snapToZeroCrossing = false;
     };
 
     void push (const Snapshot& snap)
     {
-        // Discard any redo history beyond current position
-        while ((int) undoStack.size() > pos)
-            undoStack.pop_back();
-
-        undoStack.push_back (snap);
-
-        // Enforce max size (remove from front)
-        while ((int) undoStack.size() > kMaxSnapshots)
+        // When the current state already lives inside the ring (after undo/redo),
+        // keep that state as the undo baseline and drop only the redo tail.
+        if (current < size)
         {
-            undoStack.pop_front();
-            --pos;
+            size = current + 1;
+            current = size;
+            return;
         }
 
-        pos = (int) undoStack.size();
+        if (size < kMaxSnapshots)
+        {
+            setSnapshot (size, snap);
+            ++size;
+            current = size;
+            return;
+        }
+
+        // Full ring: overwrite the oldest entry and advance the logical start.
+        setSnapshot (size, snap);
+        start = (start + 1) % kMaxSnapshots;
+        current = size;
     }
 
-    bool canUndo() const { return pos > 0; }
-    bool canRedo() const { return pos < (int) undoStack.size() - 1; }
+    bool canUndo() const
+    {
+        if (size == 0)
+            return false;
+
+        return current == size ? size > 0 : current > 0;
+    }
+
+    bool canRedo() const
+    {
+        return current < size - 1;
+    }
 
     // Call with the current state before restoring; stores it so redo can reach it
     Snapshot undo (const Snapshot& currentState)
     {
-        if (pos <= 0)
+        if (! canUndo())
             return currentState;
 
-        // If pos == stack size, the current state has never been saved — append it
-        if (pos == (int) undoStack.size())
-            undoStack.push_back (currentState);
-        else
-            undoStack[(size_t) pos] = currentState;
+        // If the live current state is not yet in the history, append it so redo
+        // can return to it after the undo step.
+        if (current == size)
+        {
+            if (size < kMaxSnapshots)
+                setSnapshot (size, currentState);
+            else
+            {
+                setSnapshot (size, currentState);
+                start = (start + 1) % kMaxSnapshots;
+            }
 
-        --pos;
-        return undoStack[(size_t) pos];
+            if (size < kMaxSnapshots)
+                ++size;
+
+            current = size - 1;
+        }
+
+        --current;
+        return getSnapshot (current);
     }
 
     Snapshot redo()
     {
-        if (pos >= (int) undoStack.size() - 1)
-            return undoStack.back();
+        if (size == 0)
+            return {};
+        if (current >= size - 1)
+            return getSnapshot (size - 1);
 
-        ++pos;
-        return undoStack[(size_t) pos];
+        ++current;
+        return getSnapshot (current);
     }
 
     void clear()
     {
-        undoStack.clear();
-        pos = 0;
+        start = 0;
+        size = 0;
+        current = 0;
     }
 
 private:
-    std::deque<Snapshot> undoStack;
-    int pos = 0;  // points one past the last "before" snapshot, or at the current state
+    int physicalIndexForLogical (int logicalIndex) const
+    {
+        jassert (logicalIndex >= 0 && logicalIndex < size);
+        return (start + logicalIndex) % kMaxSnapshots;
+    }
+
+    const Snapshot& getSnapshot (int logicalIndex) const
+    {
+        return undoStack[(size_t) physicalIndexForLogical (logicalIndex)];
+    }
+
+    void setSnapshot (int logicalIndex, const Snapshot& snap)
+    {
+        undoStack[(size_t) ((start + logicalIndex) % kMaxSnapshots)] = snap;
+    }
+
+    std::array<Snapshot, kMaxSnapshots> undoStack {};
+    int start = 0;
+    int size = 0;
+    int current = 0;  // [0, size): current state stored in ring, size: live state not yet stored
 };

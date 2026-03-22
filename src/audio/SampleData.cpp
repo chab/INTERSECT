@@ -128,8 +128,6 @@ void SampleData::applyDecodedSample (std::unique_ptr<DecodedSample> decoded)
     if (decoded == nullptr)
         return;
 
-    loadedFileName = decoded->fileName;
-    loadedFilePath = decoded->filePath;
     const int frames = decoded->decodedNumFrames > 0 ? decoded->decodedNumFrames
                                                      : decoded->buffer.getNumSamples();
 
@@ -171,8 +169,6 @@ void SampleData::clear()
     std::atomic_store_explicit (&snapshot, std::shared_ptr<const DecodedSample> {},
                                 std::memory_order_release);
 #endif
-    loadedFileName.clear();
-    loadedFilePath.clear();
     loaded.store (false, std::memory_order_release);
     decodedSampleRate.store (0.0, std::memory_order_release);
     sourceNumFrames.store (0, std::memory_order_release);
@@ -211,8 +207,13 @@ float SampleData::getInterpolatedSample (double pos, int channel) const
     int ipos = (int) pos;
     float frac = (float) (pos - ipos);
 
-    if (ipos < 0 || ipos >= buf.getNumSamples() - 1)
+    if (ipos < 0 || ipos >= buf.getNumSamples())
         return 0.0f;
+    if (ipos == buf.getNumSamples() - 1)
+    {
+        auto* data = buf.getReadPointer (channel);
+        return data != nullptr ? data[ipos] : 0.0f;
+    }
 
     auto* data = buf.getReadPointer (channel);
     if (data == nullptr)

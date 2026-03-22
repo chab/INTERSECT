@@ -149,9 +149,15 @@ void HeaderBar::paint (juce::Graphics& g)
     const auto& ui = processor.getUiSliceSnapshot();
 
     juce::String fileText;
-    if (ui.sampleMissing)
+    if (ui.hasStatusMessage)
     {
-        fileText = "MISSING: " + ui.sampleFileName + "  CLICK TO RELINK";
+        fileText = ui.statusMessage.toString();
+        g.setColour (ui.statusIsWarning ? juce::Colours::orange.brighter (0.1f)
+                                        : getTheme().text1);
+    }
+    else if (ui.sampleMissing)
+    {
+        fileText = "MISSING: " + ui.sampleFileName.toString() + "  CLICK TO RELINK";
         g.setColour (juce::Colours::orange.brighter (0.1f));
     }
     else if (ui.sampleLoaded)
@@ -160,7 +166,7 @@ void HeaderBar::paint (juce::Graphics& g)
         if (srate <= 0.0)
             srate = 44100.0;
         const double lenSec = ui.sampleNumFrames / srate;
-        fileText = ui.sampleFileName + " (" + juce::String (lenSec, 2) + "s)";
+        fileText = ui.sampleFileName.toString() + " (" + juce::String (lenSec, 2) + "s)";
         g.setColour (juce::Colour (0xFF505868));
     }
     else

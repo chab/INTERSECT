@@ -3,12 +3,14 @@
 #include <array>
 #include <optional>
 #include <vector>
+#include "RtText.h"
 #include "audio/SampleData.h"
 #include "audio/SliceManager.h"
 #include "audio/VoicePool.h"
 #include "audio/LazyChopEngine.h"
 #include "UndoManager.h"
 #include "params/GlobalParamSnapshot.h"
+#include "params/ParamUndoState.h"
 #include "params/ParamIds.h"
 #include "params/ParamLayout.h"
 
@@ -181,7 +183,10 @@ public:
         bool sampleMissing = false;
         int sampleNumFrames = 0;
         double sampleSampleRate = 0.0;
-        juce::String sampleFileName;
+        RtText<512> sampleFileName;
+        bool hasStatusMessage = false;
+        bool statusIsWarning = false;
+        RtText<256> statusMessage;
         std::array<Slice, SliceManager::kMaxSlices> slices {};
     };
 
@@ -246,12 +251,9 @@ public:
     // Undo/redo
     UndoManager undoMgr;
 
-    // Message-thread cached APVTS state for RT-safe snapshot creation.
-    // Updated by editor timer; read by audio thread for undo snapshots.
-    void cacheApvtsState();  // call from message thread only
-    // Deferred APVTS restore: message thread picks up pending ValueTree.
+    // Deferred parameter restore: message thread picks up pending POD state.
     // Returns true if a restore was applied.
-    bool applyDeferredApvtsRestore();
+    bool applyDeferredParamRestore();
 
     // Shift preview request: -2=no-op, -1=stop, >=0=start at this sample position
     std::atomic<int> shiftPreviewRequest { -2 };
@@ -274,7 +276,6 @@ public:
 
     // Missing sample state (for relink UI)
     std::atomic<bool> sampleMissing { false };
-    juce::String missingFilePath;
     std::atomic<int> sampleAvailability { (int) SampleStateEmpty };
 
     SampleAvailabilityState getSampleAvailabilityState() const
@@ -287,7 +288,20 @@ private:
     {
         int token = 0;
         LoadKind kind = LoadKindReplace;
-        juce::File file;
+        RtText<512> fileName;
+        RtText<4096> filePath;
+    };
+
+    struct MissingFileInfo
+    {
+        RtText<512> fileName;
+        RtText<4096> filePath;
+    };
+
+    struct UiStatusMessage
+    {
+        RtText<256> text;
+        bool isWarning = false;
     };
 
     struct PendingSliceTimelineRemap
@@ -317,6 +331,17 @@ private:
     void clearVoicesBeforeSampleSwap();
     void clampSlicesToSampleBounds();
     void publishUiSliceSnapshot();
+    void setMissingFileInfo (const RtText<512>& fileName, const RtText<4096>& filePath);
+    void clearMissingFileInfo();
+    const MissingFileInfo& getMissingFileInfo() const;
+    void setUiStatusMessage (const juce::String& text, bool isWarning);
+    void clearUiStatusMessage();
+    const UiStatusMessage& getUiStatusMessage() const;
+    void setPendingStateFile (const juce::File& file);
+    void clearPendingStateFile();
+    juce::File getPendingStateFile() const;
+    ParamUndoState captureParamUndoState() const;
+    void applyParamUndoState (const ParamUndoState& state);
     void clearPendingSliceTimelineRemap();
     void primePendingSliceTimelineRemap (int savedStateVersion,
                                          int savedDecodedNumFrames,
@@ -373,13 +398,15 @@ private:
 
     bool heldNotes[128] = {};
 
-    // Message-thread cached APVTS state for RT-safe undo snapshots.
-    juce::ValueTree cachedApvtsState;
-    juce::CriticalSection cachedApvtsLock;
-
-    // Deferred APVTS restore: audio thread stores pending ValueTree here,
-    // message thread picks it up and calls replaceState().
-    std::atomic<juce::ValueTree*> pendingApvtsRestore { nullptr };
+    std::array<ParamUndoState, 2> pendingParamRestoreStates {};
+    std::atomic<int> pendingParamRestoreIndex { -1 };
+    std::array<MissingFileInfo, 2> missingFileInfos {};
+    std::atomic<int> missingFileInfoIndex { 0 };
+    std::array<UiStatusMessage, 2> uiStatusMessages {};
+    std::atomic<int> uiStatusMessageIndex { 0 };
+    std::atomic<int> pendingStateRestoreToken { 0 };
+    juce::File pendingStateFile;
+    mutable juce::CriticalSection pendingStateFileLock;
 
     // Cached parameter pointers
     std::atomic<float>* masterVolParam  = nullptr;
@@ -414,6 +441,7 @@ private:
     std::atomic<float>* filterEnvSustainParam = nullptr;
     std::atomic<float>* filterEnvReleaseParam = nullptr;
     std::atomic<float>* filterEnvAmountParam  = nullptr;
+    std::atomic<float>* uiScaleParam          = nullptr;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (IntersectProcessor)
 };

@@ -6,6 +6,8 @@
 SliceManager::SliceManager()
 {
     midiMap.fill (-1);
+    for (auto& v : midiMapMulti)
+        v.reserve ((size_t) kMaxSlices);
 }
 
 int SliceManager::createSlice (int start, int end)
@@ -22,7 +24,8 @@ int SliceManager::createSlice (int start, int end)
         std::swap (start, end);
 
     int idx = numSlices;
-    auto& s = slices[idx];
+    slices[(size_t) idx] = Slice {};
+    auto& s = slices[(size_t) idx];
 
     s.active      = true;
     s.startSample = start;

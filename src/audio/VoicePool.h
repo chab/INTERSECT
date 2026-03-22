@@ -4,6 +4,7 @@
 #include "SampleData.h"
 #include <array>
 #include <atomic>
+#include <juce_core/juce_core.h>
 
 // All global parameter values needed to start a voice, pre-loaded from APVTS on the UI thread.
 // Units match slice storage: seconds for ADSR, 0-1 for sustain, dB for volume.
@@ -92,8 +93,17 @@ public:
     void setMaxActiveVoices (int n);
     int  getMaxActiveVoices() const { return maxActive; }
 
-    Voice& getVoice (int idx) { return voices[idx]; }
-    const Voice& getVoice (int idx) const { return voices[idx]; }
+    Voice& getVoice (int idx)
+    {
+        jassert (juce::isPositiveAndBelow (idx, kMaxVoices));
+        return voices[(size_t) idx];
+    }
+
+    const Voice& getVoice (int idx) const
+    {
+        jassert (juce::isPositiveAndBelow (idx, kMaxVoices));
+        return voices[(size_t) idx];
+    }
 
     void startShiftPreview (int startSample, int bufferSize, const PreviewStretchParams& p);
     void stopShiftPreview();

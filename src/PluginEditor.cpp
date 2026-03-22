@@ -239,9 +239,8 @@ bool IntersectEditor::keyPressed (const juce::KeyPress& key)
 
 void IntersectEditor::timerCallback()
 {
-    // Cache APVTS state for RT-safe undo snapshots and apply deferred restores.
-    processor.cacheApvtsState();
-    processor.applyDeferredApvtsRestore();
+    // Apply deferred non-RT parameter restores from undo/redo.
+    processor.applyDeferredParamRestore();
 
     bool uiChanged = false;
     bool viewportChanged = false;
