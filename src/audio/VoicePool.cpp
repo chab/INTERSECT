@@ -210,6 +210,14 @@ VoicePool::VoicePool()
     updateBungeePingPongFadeLength();
 }
 
+void VoicePool::prepareToPlay (double sr, int maxBlockSize)
+{
+    setSampleRate (sr);
+    const int scratchSize = juce::jmax (1, maxBlockSize);
+    scratchL.resize ((size_t) scratchSize, 0.0f);
+    scratchR.resize ((size_t) scratchSize, 0.0f);
+}
+
 void VoicePool::setSampleRate (double sr)
 {
     sampleRate = sr;
@@ -1107,6 +1115,87 @@ void VoicePool::processSample (const SampleData& sample, double sr,
         processVoiceSample (previewIdx, sample, sr, vL, vR);
         outL += vL;
         outR += vR;
+    }
+}
+
+void VoicePool::renderMainBusBlock (const SampleData& sample,
+                                     float* destL, float* destR, int numSamples)
+{
+    // Zero destination
+    if (destL) std::fill_n (destL, numSamples, 0.0f);
+    if (destR) std::fill_n (destR, numSamples, 0.0f);
+
+    auto renderVoiceBlock = [&] (int vi)
+    {
+        for (int s = 0; s < numSamples; ++s)
+        {
+            float vL = 0.0f, vR = 0.0f;
+            processVoiceSample (vi, sample, sampleRate, vL, vR);
+            if (destL) destL[s] += vL;
+            if (destR) destR[s] += vR;
+        }
+    };
+
+    for (int vi = 0; vi < maxActive; ++vi)
+    {
+        if (voices[vi].active)
+            renderVoiceBlock (vi);
+    }
+
+    // Preview voice (LazyChopEngine / shift preview) — always on main bus
+    constexpr int previewIdx = kPreviewVoiceIndex;
+    if (previewIdx >= maxActive && voices[previewIdx].active)
+        renderVoiceBlock (previewIdx);
+}
+
+void VoicePool::renderRoutedBlock (const SampleData& sample,
+                                    float* busL[], float* busR[], int numBuses, int numSamples)
+{
+    const int scratchSize = (int) std::min (scratchL.size(), scratchR.size());
+    jassert (scratchSize > 0);
+    if (scratchSize <= 0 || numSamples <= 0)
+        return;
+
+    auto renderVoiceToScratch = [&] (int vi, int chunkSamples)
+    {
+        for (int s = 0; s < chunkSamples; ++s)
+            processVoiceSample (vi, sample, sampleRate, scratchL[s], scratchR[s]);
+    };
+
+    auto accumulateScratchToBus = [&] (float* dstL, float* dstR, int chunkStart, int chunkSamples)
+    {
+        for (int s = 0; s < chunkSamples; ++s)
+        {
+            if (dstL) dstL[chunkStart + s] += scratchL[s];
+            if (dstR) dstR[chunkStart + s] += scratchR[s];
+        }
+    };
+
+    for (int chunkStart = 0; chunkStart < numSamples; chunkStart += scratchSize)
+    {
+        const int chunkSamples = std::min (scratchSize, numSamples - chunkStart);
+
+        for (int vi = 0; vi < maxActive; ++vi)
+        {
+            if (! voices[vi].active)
+                continue;
+
+            renderVoiceToScratch (vi, chunkSamples);
+
+            int bus = voices[vi].outputBus;
+            if (bus < 0 || bus >= numBuses || busL[bus] == nullptr)
+                bus = 0;
+
+            accumulateScratchToBus (busL[bus], busR[bus], chunkStart, chunkSamples);
+        }
+
+        // Preview voice — always to bus 0
+        constexpr int previewIdx = kPreviewVoiceIndex;
+        if (previewIdx >= maxActive && voices[previewIdx].active)
+        {
+            renderVoiceToScratch (previewIdx, chunkSamples);
+            accumulateScratchToBus (busL[0], busR[0], chunkStart, chunkSamples);
+        }
     }
 }
 

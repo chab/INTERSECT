@@ -88,6 +88,13 @@ public:
     void processSample (const SampleData& sample, double sampleRate,
                         float& outL, float& outR);
 
+    // Block-based render APIs — preferred entry points from processBlock()
+    void renderMainBusBlock (const SampleData& sample,
+                             float* destL, float* destR, int numSamples);
+    void renderRoutedBlock (const SampleData& sample,
+                            float* busL[], float* busR[], int numBuses, int numSamples);
+
+    void prepareToPlay (double sampleRate, int maxBlockSize);
     void setSampleRate (double sr);
     double getSampleRate() const { return sampleRate; }
 
@@ -134,4 +141,8 @@ private:
     std::array<Voice, kMaxVoices> voices;
     int maxActive = 16; // playable voices, excluding preview voice
     double sampleRate = 44100.0;
+
+    // Preallocated scratch buffers for block rendering (sized to maxBlockSize)
+    std::vector<float> scratchL;
+    std::vector<float> scratchR;
 };

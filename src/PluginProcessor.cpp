@@ -532,10 +532,10 @@ bool IntersectProcessor::isBusesLayoutSupported (const BusesLayout& layouts) con
     return true;
 }
 
-void IntersectProcessor::prepareToPlay (double sampleRate, int /*samplesPerBlock*/)
+void IntersectProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
     currentSampleRate = sampleRate;
-    voicePool.setSampleRate (sampleRate);
+    voicePool.prepareToPlay (sampleRate, samplesPerBlock);
     std::fill (std::begin (heldNotes), std::end (heldNotes), false);
 
     auto sampleSnap = sampleData.getSnapshot();
@@ -2050,53 +2050,34 @@ void IntersectProcessor::processBlock (juce::AudioBuffer<float>& buffer,
 
     buffer.clear();
 
+    const int numSamples = buffer.getNumSamples();
+
     if (numActiveBuses <= 1)
     {
-        // Fast path: single stereo output
-        for (int i = 0; i < buffer.getNumSamples(); ++i)
-        {
-            float sL = 0.0f, sR = 0.0f;
-            voicePool.processSample (sampleData, currentSampleRate, sL, sR);
-            if (busL[0]) busL[0][i] = sanitiseSample (sL);
-            if (busR[0]) busR[0][i] = sanitiseSample (sR);
-        }
+        // Fast path: single stereo output — voice-first block render
+        voicePool.renderMainBusBlock (sampleData, busL[0], busR[0], numSamples);
+
+        // Sanitise once after all voices have been mixed
+        if (busL[0])
+            for (int i = 0; i < numSamples; ++i)
+                busL[0][i] = sanitiseSample (busL[0][i]);
+        if (busR[0])
+            for (int i = 0; i < numSamples; ++i)
+                busR[0][i] = sanitiseSample (busR[0][i]);
     }
     else
     {
-        // Multi-out: route each voice to its assigned bus
-        constexpr int previewIdx = VoicePool::kPreviewVoiceIndex;
-        for (int i = 0; i < buffer.getNumSamples(); ++i)
-        {
-            for (int vi = 0; vi < voicePool.getMaxActiveVoices(); ++vi)
-            {
-                float vL = 0.0f, vR = 0.0f;
-                voicePool.processVoiceSample (vi, sampleData, currentSampleRate, vL, vR);
+        // Multi-out: voice-first block render with per-voice bus routing
+        voicePool.renderRoutedBlock (sampleData, busL.data(), busR.data(), numActiveBuses, numSamples);
 
-                int bus = voicePool.getVoice (vi).outputBus;
-                if (bus < 0 || bus >= numActiveBuses || busL[bus] == nullptr) bus = 0;
-                if (busL[bus]) busL[bus][i] += vL;
-                if (busR[bus]) busR[bus][i] += vR;
-            }
-
-            // Always process preview voice (LazyChopEngine) on main bus
-            if (previewIdx >= voicePool.getMaxActiveVoices()
-                && juce::isPositiveAndBelow (previewIdx, VoicePool::kMaxVoices)
-                && voicePool.getVoice (previewIdx).active)
-            {
-                float vL = 0.0f, vR = 0.0f;
-                voicePool.processVoiceSample (previewIdx, sampleData, currentSampleRate, vL, vR);
-                if (busL[0]) busL[0][i] += vL;
-                if (busR[0]) busR[0][i] += vR;
-            }
-        }
         // Clamp / NaN-guard every active bus after accumulation
         for (int b = 0; b < numActiveBuses; ++b)
         {
             if (busL[b])
-                for (int i = 0; i < buffer.getNumSamples(); ++i)
+                for (int i = 0; i < numSamples; ++i)
                     busL[b][i] = sanitiseSample (busL[b][i]);
             if (busR[b])
-                for (int i = 0; i < buffer.getNumSamples(); ++i)
+                for (int i = 0; i < numSamples; ++i)
                     busR[b][i] = sanitiseSample (busR[b][i]);
         }
     }
