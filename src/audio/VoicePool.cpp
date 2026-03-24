@@ -14,9 +14,6 @@ static constexpr int kStretchBlockSize = 128;        // required block size for 
 static constexpr int kMaxStretchInputSamples = 8192; // max pre-roll/input feed size (empirically tuned)
 static constexpr int kMaxBungeeInputFrames = 8192;
 static constexpr int kMaxBungeeOutputFrames = 8192;
-static constexpr double kBungeePingPongFadeSeconds = 0.002;
-static constexpr int kMinBungeePingPongFadeSamples = 32;
-static constexpr int kMaxBungeePingPongFadeSamples = 512;
 
 enum class PlaybackDirection
 {
@@ -32,6 +29,9 @@ enum class VoiceBoundaryAction
     releaseTail,
     release,
 };
+
+// Forward declaration — defined below, used by initStretcher
+static void reseekStretcher (Voice& v, const SampleData& sample);
 
 static PlaybackDirection getPlaybackDirection (double step)
 {
@@ -74,64 +74,110 @@ static VoiceBoundaryAction classifyBoundaryAction (const Voice& v,
     return VoiceBoundaryAction::release;
 }
 
-static int computeBungeePingPongFadeLength (double sampleRate)
-{
-    if (sampleRate <= 0.0)
-        return kMinBungeePingPongFadeSamples;
+// --- Virtual loop helpers ---
 
-    return juce::jlimit (kMinBungeePingPongFadeSamples,
-                         kMaxBungeePingPongFadeSamples,
-                         juce::roundToInt ((float) (sampleRate * kBungeePingPongFadeSeconds)));
+// Wraps pos into the half-open interval [start, end).
+// Never duplicates the endpoint. Returns start if span is invalid.
+static double wrapLoopPosition (double pos, int start, int end)
+{
+    const double len = (double) (end - start);
+    if (len <= 0.0)
+        return (double) start;
+
+    double wrapped = std::fmod (pos - start, len);
+    if (wrapped < 0.0)
+        wrapped += len;
+    return start + wrapped;
 }
 
-static void resetBungeePingPongFade (Voice& v)
+// Reflects pos through a ping-pong cycle over [start, end-1].
+// Returns the reflected position and the effective direction at that phase.
+// Does not duplicate the turnaround sample.
+static double reflectPingPongPosition (double pos, int start, int end, int& directionOut)
 {
-    v.bungeePPFade = 0;
-    v.bungeePPFadeActiveLen = 0;
-    std::fill (v.bungeePPFadeL.begin(), v.bungeePPFadeL.end(), 0.0f);
-    std::fill (v.bungeePPFadeR.begin(), v.bungeePPFadeR.end(), 0.0f);
-}
-
-static void armBungeePingPongFade (Voice& v)
-{
-    int fadeSamples = juce::jmin (v.bungeePPFadeLen, v.bungeeOutAvail);
-    fadeSamples = juce::jmin (fadeSamples, (int) v.bungeePPFadeL.size());
-    fadeSamples = juce::jmin (fadeSamples, (int) v.bungeePPFadeR.size());
-
-    v.bungeePPFade = 0;
-    v.bungeePPFadeActiveLen = 0;
-    if (fadeSamples <= 0)
-        return;
-
-    const int sourceStart = juce::jmax (0, v.bungeeOutAvail - fadeSamples);
-    for (int i = 0; i < fadeSamples; ++i)
+    const double lo = (double) start;
+    const double hi = (double) (end - 1);
+    const double span = hi - lo;
+    if (span <= 0.0)
     {
-        v.bungeePPFadeL[(size_t) i] = v.bungeeOutBufL[(size_t) (sourceStart + i)];
-        v.bungeePPFadeR[(size_t) i] = v.bungeeOutBufR[(size_t) (sourceStart + i)];
+        directionOut = 1;
+        return lo;
     }
-    if ((int) v.bungeePPFadeL.size() > fadeSamples)
-        std::fill (v.bungeePPFadeL.begin() + fadeSamples, v.bungeePPFadeL.end(), 0.0f);
-    if ((int) v.bungeePPFadeR.size() > fadeSamples)
-        std::fill (v.bungeePPFadeR.begin() + fadeSamples, v.bungeePPFadeR.end(), 0.0f);
 
-    v.bungeePPFadeActiveLen = fadeSamples;
-    v.bungeePPFade = fadeSamples;
-}
-
-static void applyBungeePingPongTurnaround (Voice& v, PlaybackDirection direction)
-{
-    armBungeePingPongFade (v);
-
-    if (direction == PlaybackDirection::forward)
+    double t = pos - lo;
+    // Track whether we've inverted direction an odd number of times
+    bool flipped = false;
+    if (t < 0.0)
     {
-        v.bungeeSrcPos = v.endSample - 1;
-        v.bungeeSpeed = -std::abs (v.bungeeSpeed);
+        t = -t;
+        flipped = !flipped;
+    }
+
+    const double fullCycle = 2.0 * span;
+    t = std::fmod (t, fullCycle);
+    if (t < 0.0)
+        t += fullCycle;
+
+    if (t <= span)
+    {
+        directionOut = flipped ? -1 : 1;
+        return lo + t;
     }
     else
     {
-        v.bungeeSrcPos = v.startSample;
-        v.bungeeSpeed = std::abs (v.bungeeSpeed);
+        directionOut = flipped ? 1 : -1;
+        return lo + (fullCycle - t);
     }
+}
+
+// Reads a sample from the virtual looped source at an arbitrary position.
+// For loop/ping-pong modes, maps the position through the virtual loop.
+// For non-loop modes, clamps to buffer bounds.
+static float readExactLoopSample (const Voice& v, const SampleData& sample,
+                                  double pos, int channel)
+{
+    const int maxFrame = sample.getNumFrames() - 1;
+    if (maxFrame < 0)
+        return 0.0f;
+
+    if (v.pingPong)
+    {
+        int unusedDir = 1;
+        double mapped = reflectPingPongPosition (pos, v.startSample, v.endSample, unusedDir);
+        return sample.getInterpolatedSample (juce::jlimit (0.0, (double) maxFrame, mapped), channel);
+    }
+
+    if (v.looping)
+    {
+        double mapped = wrapLoopPosition (pos, v.startSample, v.endSample);
+        return sample.getInterpolatedSample (juce::jlimit (0.0, (double) maxFrame, mapped), channel);
+    }
+
+    return sample.getInterpolatedSample (juce::jlimit (0.0, (double) maxFrame, pos), channel);
+}
+
+// Advances v.stretchSrcPos by v.direction and handles loop/ping-pong wrapping.
+// Returns the boundary action so the caller can still handle release cases.
+static VoiceBoundaryAction advanceStretchSrcPos (Voice& v)
+{
+    v.stretchSrcPos += (double) v.direction;
+
+    if (v.pingPong)
+    {
+        int newDir = v.direction;
+        v.stretchSrcPos = reflectPingPongPosition (v.stretchSrcPos, v.startSample, v.endSample, newDir);
+        v.direction = newDir;
+        return VoiceBoundaryAction::continuePlayback;
+    }
+
+    if (v.looping)
+    {
+        v.stretchSrcPos = wrapLoopPosition (v.stretchSrcPos, v.startSample, v.endSample);
+        return VoiceBoundaryAction::continuePlayback;
+    }
+
+    // Non-loop: classify boundary for release/releaseTail
+    return classifyBoundaryAction (v, v.stretchSrcPos, getPlaybackDirection ((double) v.direction), true);
 }
 
 static inline float dbToLinear (float dB)
@@ -206,8 +252,6 @@ VoicePool::VoicePool()
         v.bungeeOutBufL.resize (kMaxBungeeOutputFrames);
         v.bungeeOutBufR.resize (kMaxBungeeOutputFrames);
     }
-
-    updateBungeePingPongFadeLength();
 }
 
 void VoicePool::prepareToPlay (double sr, int maxBlockSize)
@@ -221,19 +265,6 @@ void VoicePool::prepareToPlay (double sr, int maxBlockSize)
 void VoicePool::setSampleRate (double sr)
 {
     sampleRate = sr;
-    updateBungeePingPongFadeLength();
-}
-
-void VoicePool::updateBungeePingPongFadeLength()
-{
-    const int fadeLen = computeBungeePingPongFadeLength (sampleRate);
-    for (auto& v : voices)
-    {
-        v.bungeePPFadeLen = fadeLen;
-        v.bungeePPFadeL.resize ((size_t) fadeLen);
-        v.bungeePPFadeR.resize ((size_t) fadeLen);
-        resetBungeePingPongFade (v);
-    }
 }
 
 int VoicePool::allocate()
@@ -319,7 +350,6 @@ void VoicePool::initPreviewVoiceCommon (Voice& v,
     v.bungeeActive  = false;
     v.bungeeOutReadPos = 0;
     v.bungeeOutAvail   = 0;
-    resetBungeePingPongFade (v);
 }
 
 void VoicePool::initPreviewVoiceStretch (Voice& v, int sourceStartSample, const PreviewStretchParams& p)
@@ -397,31 +427,8 @@ void VoicePool::initStretcher (Voice& v, float pitchSemis, double sr,
     v.stretchOutReadPos = 0;
     v.stretchOutAvail = 0;
 
-    // Pre-roll: prime the pipeline so first output isn't silence
-    float playbackRate = v.stretchTimeRatio;
-    int seekLen = v.stretcher->outputSeekLength (playbackRate);
-    seekLen = std::min (seekLen, v.endSample - v.startSample);
-    seekLen = juce::jlimit (0, (int) v.stretchInBufL.size(), seekLen);
-
-    int maxFrame = sample.getNumFrames() - 1;
-    if (seekLen > 0 && sample.isLoaded() && maxFrame >= 0)
-    {
-        for (int i = 0; i < seekLen; ++i)
-        {
-            int srcIdx = (v.direction > 0)
-                ? v.startSample + i
-                : v.endSample - 1 - i;
-            srcIdx = juce::jlimit (0, maxFrame, srcIdx);
-            v.stretchInBufL[(size_t) i] = sample.getInterpolatedSample (srcIdx, 0);
-            v.stretchInBufR[(size_t) i] = sample.getInterpolatedSample (srcIdx, 1);
-        }
-        float* ptrs[2] = { v.stretchInBufL.data(), v.stretchInBufR.data() };
-        v.stretcher->outputSeek (ptrs, seekLen);
-        if (v.direction > 0)
-            v.stretchSrcPos = v.startSample + seekLen;
-        else
-            v.stretchSrcPos = v.endSample - 1 - seekLen;
-    }
+    // Pre-roll from current stretchSrcPos via shared reseek helper
+    reseekStretcher (v, sample);
 }
 
 void VoicePool::initBungee (Voice& v, float pitchSemis, double sr, int grainMode)
@@ -436,7 +443,6 @@ void VoicePool::initBungee (Voice& v, float pitchSemis, double sr, int grainMode
     v.bungeePitch = std::pow (2.0, (double) pitchSemis / 12.0);
     v.bungeeOutReadPos = 0;
     v.bungeeOutAvail = 0;
-    resetBungeePingPongFade (v);
 }
 
 void VoicePool::startVoice (int voiceIdx, const VoiceStartParams& p,
@@ -541,10 +547,9 @@ void VoicePool::startVoice (int voiceIdx, const VoiceStartParams& p,
     v.filterR2.reset();
     v.filterEnvelope.noteOn (filterEnvAttack, filterEnvDecay, filterEnvSustain, filterEnvRelease, sampleRate);
 
-    // Reset stretch state and ping-pong fade (guard against stale data from stolen voices)
+    // Reset stretch state (guard against stale data from stolen voices)
     v.stretchActive  = false;
     v.bungeeActive   = false;
-    resetBungeePingPongFade (v);
 
     if (stretchOn && p.dawBpm > 0.0f && sliceBpm > 0.0f)
     {
@@ -667,6 +672,39 @@ void VoicePool::muteGroup (int group, int exceptVoice)
     }
 }
 
+// Reseek the Signalsmith stretcher from the current stretchSrcPos/direction.
+// Extracted from initStretcher() so it can also be called at loop/ping-pong seams.
+static void reseekStretcher (Voice& v, const SampleData& sample)
+{
+    if (! v.stretcher || ! sample.isLoaded())
+        return;
+
+    float playbackRate = v.stretchTimeRatio;
+    int seekLen = v.stretcher->outputSeekLength (playbackRate);
+    seekLen = std::min (seekLen, v.endSample - v.startSample);
+    seekLen = juce::jlimit (0, (int) v.stretchInBufL.size(), seekLen);
+
+    int maxFrame = sample.getNumFrames() - 1;
+    if (seekLen > 0 && maxFrame >= 0)
+    {
+        for (int i = 0; i < seekLen; ++i)
+        {
+            int srcIdx = (v.direction > 0)
+                ? (int) v.stretchSrcPos + i
+                : (int) v.stretchSrcPos - i;
+            srcIdx = juce::jlimit (0, maxFrame, srcIdx);
+            v.stretchInBufL[(size_t) i] = sample.getInterpolatedSample (srcIdx, 0);
+            v.stretchInBufR[(size_t) i] = sample.getInterpolatedSample (srcIdx, 1);
+        }
+        float* ptrs[2] = { v.stretchInBufL.data(), v.stretchInBufR.data() };
+        v.stretcher->outputSeek (ptrs, seekLen);
+        v.stretchSrcPos += (v.direction > 0) ? seekLen : -seekLen;
+    }
+
+    v.stretchOutReadPos = 0;
+    v.stretchOutAvail = 0;
+}
+
 static void fillStretchBlock (Voice& v, const SampleData& sample)
 {
     int inputSamples = (int) (kStretchBlockSize * v.stretchTimeRatio);
@@ -678,39 +716,18 @@ static void fillStretchBlock (Voice& v, const SampleData& sample)
 
     for (int i = 0; i < inputSamples; ++i)
     {
-        double pos = v.stretchSrcPos;
-        // Clamp to sample buffer bounds for safety
-        pos = juce::jlimit (0.0, (double) v.bufferEnd - 1, pos);
-        v.stretchInBufL[(size_t) i] = sample.getInterpolatedSample (pos, 0);
-        v.stretchInBufR[(size_t) i] = sample.getInterpolatedSample (pos, 1);
-        v.stretchSrcPos += (double) v.direction;
-        const auto direction = getPlaybackDirection ((double) v.direction);
-        switch (classifyBoundaryAction (v, v.stretchSrcPos, direction, true))
+        // Read from virtual looped source (handles loop/ping-pong transparently)
+        v.stretchInBufL[(size_t) i] = readExactLoopSample (v, sample, v.stretchSrcPos, 0);
+        v.stretchInBufR[(size_t) i] = readExactLoopSample (v, sample, v.stretchSrcPos, 1);
+
+        // Advance source position (loop/ping-pong wrap handled by advanceStretchSrcPos)
+        auto action = advanceStretchSrcPos (v);
+
+        // For non-loop modes, handle release/releaseTail boundaries
+        switch (action)
         {
-            case VoiceBoundaryAction::continuePlayback:
-                break;
-
-            case VoiceBoundaryAction::pingPongTurnaround:
-                if (direction == PlaybackDirection::forward)
-                {
-                    v.stretchSrcPos = v.endSample - 1;
-                    v.direction = -1;
-                }
-                else
-                {
-                    v.stretchSrcPos = v.startSample;
-                    v.direction = 1;
-                }
-                break;
-
-            case VoiceBoundaryAction::loopWrap:
-                v.stretchSrcPos = direction == PlaybackDirection::forward
-                    ? (double) v.startSample
-                    : (double) (v.endSample - 1);
-                break;
-
             case VoiceBoundaryAction::releaseTail:
-                v.stretchSrcPos = direction == PlaybackDirection::forward
+                v.stretchSrcPos = (v.direction > 0)
                     ? std::min (v.stretchSrcPos, (double) v.bufferEnd - 1)
                     : std::max (v.stretchSrcPos, 0.0);
                 break;
@@ -724,12 +741,15 @@ static void fillStretchBlock (Voice& v, const SampleData& sample)
                     v.stretchInBufL[(size_t) j] = lastL;
                     v.stretchInBufR[(size_t) j] = lastR;
                 }
-                v.stretchSrcPos = direction == PlaybackDirection::forward
+                v.stretchSrcPos = (v.direction > 0)
                     ? (double) v.endSample
                     : (double) v.startSample;
                 i = inputSamples;
                 break;
             }
+
+            default:
+                break;
         }
     }
 
@@ -756,26 +776,6 @@ static void fillBungeeBlock (Voice& v, const SampleData& sample)
     if (! v.bungeeStretcher)
         return;
 
-    const auto direction = getPlaybackDirection (v.bungeeSpeed);
-    switch (classifyBoundaryAction (v, v.bungeeSrcPos, direction, true))
-    {
-        case VoiceBoundaryAction::pingPongTurnaround:
-            applyBungeePingPongTurnaround (v, direction);
-            break;
-
-        case VoiceBoundaryAction::loopWrap:
-            if (direction == PlaybackDirection::forward)
-                v.bungeeSrcPos = v.startSample;
-            else
-                v.bungeeSrcPos = v.endSample - 1;
-            break;
-
-        case VoiceBoundaryAction::continuePlayback:
-        case VoiceBoundaryAction::releaseTail:
-        case VoiceBoundaryAction::release:
-            break;
-    }
-
     auto& stretcher = *v.bungeeStretcher;
 
     // Set up the request for this grain
@@ -790,7 +790,6 @@ static void fillBungeeBlock (Voice& v, const SampleData& sample)
     if (request.reset)
         stretcher.preroll (request);
 
-    // Process grains until we have output
     stretcher.next (request);
 
     Bungee::InputChunk inputChunk = stretcher.specifyGrain (request);
@@ -810,30 +809,43 @@ static void fillBungeeBlock (Voice& v, const SampleData& sample)
         inputChunk.end = inputChunk.begin + numFrames;
     }
 
-    // Determine effective end for reading (release tail allows reading past slice end)
-    int effectiveEnd = v.releaseTail && !v.pingPong ? v.bufferEnd : v.endSample;
-
-    // Fill input buffer (non-interleaved: ch0 then ch1)
-    for (int i = 0; i < numFrames; ++i)
-    {
-        double pos = inputChunk.begin + i;
-
-        float sL = 0.0f, sR = 0.0f;
-        if (pos >= v.startSample && pos < effectiveEnd)
-        {
-            sL = sample.getInterpolatedSample (pos, 0);
-            sR = sample.getInterpolatedSample (pos, 1);
-        }
-        v.bungeeInputBuf[(size_t) i] = sL;
-        v.bungeeInputBuf[(size_t)(maxIn + i)] = sR;
-    }
-
-    // Compute mute counts
+    const bool isLoopOrPingPong = v.looping || v.pingPong;
     int muteHead = 0, muteTail = 0;
-    if (inputChunk.begin < v.startSample)
-        muteHead = v.startSample - inputChunk.begin;
-    if (inputChunk.end > effectiveEnd)
-        muteTail = inputChunk.end - effectiveEnd;
+
+    if (isLoopOrPingPong)
+    {
+        // Virtual loop: map each grain position through the exact loop helpers.
+        // The virtual source is always valid, so muteHead/muteTail stay 0.
+        for (int i = 0; i < numFrames; ++i)
+        {
+            double pos = inputChunk.begin + i;
+            v.bungeeInputBuf[(size_t) i]         = readExactLoopSample (v, sample, pos, 0);
+            v.bungeeInputBuf[(size_t)(maxIn + i)] = readExactLoopSample (v, sample, pos, 1);
+        }
+    }
+    else
+    {
+        // Non-loop: original behavior with clamping and mute counts
+        int effectiveEnd = v.releaseTail ? v.bufferEnd : v.endSample;
+
+        for (int i = 0; i < numFrames; ++i)
+        {
+            double pos = inputChunk.begin + i;
+            float sL = 0.0f, sR = 0.0f;
+            if (pos >= v.startSample && pos < effectiveEnd)
+            {
+                sL = sample.getInterpolatedSample (pos, 0);
+                sR = sample.getInterpolatedSample (pos, 1);
+            }
+            v.bungeeInputBuf[(size_t) i]         = sL;
+            v.bungeeInputBuf[(size_t)(maxIn + i)] = sR;
+        }
+
+        if (inputChunk.begin < v.startSample)
+            muteHead = v.startSample - inputChunk.begin;
+        if (inputChunk.end > effectiveEnd)
+            muteTail = inputChunk.end - effectiveEnd;
+    }
 
     stretcher.analyseGrain (v.bungeeInputBuf.data(), (intptr_t) maxIn, muteHead, muteTail);
 
@@ -864,16 +876,19 @@ static void fillBungeeBlock (Voice& v, const SampleData& sample)
         v.bungeeOutAvail = 0;
     }
 
-    // Advance source position
+    // Advance source position from the engine
     v.bungeeSrcPos = request.position;
 
-    // Clamp to slice boundaries to prevent playhead overshoot
+    // Canonicalize position back into loop range for next grain
     if (v.pingPong)
     {
-        if (v.bungeeSrcPos > v.endSample)
-            v.bungeeSrcPos = v.endSample;
-        if (v.bungeeSrcPos < v.startSample)
-            v.bungeeSrcPos = v.startSample;
+        int newDir = 1;
+        v.bungeeSrcPos = reflectPingPongPosition (v.bungeeSrcPos, v.startSample, v.endSample, newDir);
+        v.bungeeSpeed = std::abs (v.bungeeSpeed) * (double) newDir;
+    }
+    else if (v.looping)
+    {
+        v.bungeeSrcPos = wrapLoopPosition (v.bungeeSrcPos, v.startSample, v.endSample);
     }
 }
 
@@ -906,29 +921,30 @@ void VoicePool::processVoiceSample (int i, const SampleData& sample, double /*sr
         // Fill output buffer if empty
         if (v.stretchOutReadPos >= v.stretchOutAvail)
         {
-            switch (classifyBoundaryAction (v, v.stretchSrcPos, getPlaybackDirection ((double) v.direction), true))
+            if (v.looping || v.pingPong)
             {
-                case VoiceBoundaryAction::loopWrap:
-                    if (v.direction > 0)
-                        v.stretchSrcPos = v.startSample;
-                    else
-                        v.stretchSrcPos = v.endSample - 1;
-                    fillStretchBlock (v, sample);
-                    break;
+                // Loop/ping-pong: fillStretchBlock handles wrapping internally
+                fillStretchBlock (v, sample);
+            }
+            else
+            {
+                switch (classifyBoundaryAction (v, v.stretchSrcPos, getPlaybackDirection ((double) v.direction), true))
+                {
+                    case VoiceBoundaryAction::releaseTail:
+                        releaseVoiceIfNeeded (v);
+                        fillStretchBlock (v, sample);
+                        break;
 
-                case VoiceBoundaryAction::releaseTail:
-                    releaseVoiceIfNeeded (v);
-                    fillStretchBlock (v, sample);
-                    break;
+                    case VoiceBoundaryAction::release:
+                        releaseVoiceIfNeeded (v);
+                        break;
 
-                case VoiceBoundaryAction::release:
-                    releaseVoiceIfNeeded (v);
-                    break;
-
-                case VoiceBoundaryAction::continuePlayback:
-                case VoiceBoundaryAction::pingPongTurnaround:
-                    fillStretchBlock (v, sample);
-                    break;
+                    case VoiceBoundaryAction::continuePlayback:
+                    case VoiceBoundaryAction::loopWrap:
+                    case VoiceBoundaryAction::pingPongTurnaround:
+                        fillStretchBlock (v, sample);
+                        break;
+                }
             }
         }
 
@@ -961,30 +977,30 @@ void VoicePool::processVoiceSample (int i, const SampleData& sample, double /*sr
         // Fill output buffer if empty
         if (v.bungeeOutReadPos >= v.bungeeOutAvail)
         {
-            switch (classifyBoundaryAction (v, v.bungeeSrcPos, getPlaybackDirection (v.bungeeSpeed), true))
+            if (v.looping || v.pingPong)
             {
-                case VoiceBoundaryAction::loopWrap:
-                    if (v.bungeeSpeed > 0.0)
-                        v.bungeeSrcPos = v.startSample;
-                    else
-                        v.bungeeSrcPos = v.endSample - 1;
-                    v.bungeeResetNeeded = true;
-                    fillBungeeBlock (v, sample);
-                    break;
+                // Loop/ping-pong: fillBungeeBlock handles wrapping internally
+                fillBungeeBlock (v, sample);
+            }
+            else
+            {
+                switch (classifyBoundaryAction (v, v.bungeeSrcPos, getPlaybackDirection (v.bungeeSpeed), true))
+                {
+                    case VoiceBoundaryAction::releaseTail:
+                        releaseVoiceIfNeeded (v);
+                        fillBungeeBlock (v, sample);
+                        break;
 
-                case VoiceBoundaryAction::releaseTail:
-                    releaseVoiceIfNeeded (v);
-                    fillBungeeBlock (v, sample);
-                    break;
+                    case VoiceBoundaryAction::release:
+                        releaseVoiceIfNeeded (v);
+                        break;
 
-                case VoiceBoundaryAction::release:
-                    releaseVoiceIfNeeded (v);
-                    break;
-
-                case VoiceBoundaryAction::continuePlayback:
-                case VoiceBoundaryAction::pingPongTurnaround:
-                    fillBungeeBlock (v, sample);
-                    break;
+                    case VoiceBoundaryAction::continuePlayback:
+                    case VoiceBoundaryAction::loopWrap:
+                    case VoiceBoundaryAction::pingPongTurnaround:
+                        fillBungeeBlock (v, sample);
+                        break;
+                }
             }
         }
 
@@ -992,25 +1008,6 @@ void VoicePool::processVoiceSample (int i, const SampleData& sample, double /*sr
         {
             voiceL = v.bungeeOutBufL[(size_t) v.bungeeOutReadPos];
             voiceR = v.bungeeOutBufR[(size_t) v.bungeeOutReadPos];
-
-            // Crossfade during ping-pong direction change
-            if (v.bungeePPFade > 0 && v.bungeePPFadeActiveLen > 0)
-            {
-                const int fadeIdx = v.bungeePPFadeActiveLen - v.bungeePPFade;
-                const float fadeIn = (float) fadeIdx / (float) v.bungeePPFadeActiveLen;
-                float fadeOut = 1.0f - fadeIn;
-
-                if (fadeIdx < v.bungeePPFadeActiveLen
-                    && fadeIdx < (int) v.bungeePPFadeL.size()
-                    && fadeIdx < (int) v.bungeePPFadeR.size())
-                {
-                    voiceL = voiceL * fadeIn + v.bungeePPFadeL[(size_t) fadeIdx] * fadeOut;
-                    voiceR = voiceR * fadeIn + v.bungeePPFadeR[(size_t) fadeIdx] * fadeOut;
-                }
-                v.bungeePPFade--;
-                if (v.bungeePPFade == 0)
-                    v.bungeePPFadeActiveLen = 0;
-            }
 
             processVoiceFilter (v, (float) sampleRate, voiceL, voiceR);
             voiceL *= env * v.velocity * v.volume;

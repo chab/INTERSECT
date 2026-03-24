@@ -136,8 +136,6 @@ public:
                              float& outL, float& outR);
 
 private:
-    void updateBungeePingPongFadeLength();
-
     std::array<Voice, kMaxVoices> voices;
     int maxActive = 16; // playable voices, excluding preview voice
     double sampleRate = 44100.0;
