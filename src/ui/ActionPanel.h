@@ -6,11 +6,13 @@ class IntersectProcessor;
 class WaveformView;
 class AutoChopPanel;
 
-class ActionPanel : public juce::Component
+class ActionPanel : public juce::Component,
+                    public juce::TooltipClient
 {
 public:
     ActionPanel (IntersectProcessor& p, WaveformView& wv);
     ~ActionPanel() override;
+    juce::String getTooltip() override;
     void resized() override;
     void paint (juce::Graphics& g) override;
     void mouseDown (const juce::MouseEvent& e) override;
@@ -43,6 +45,7 @@ private:
     int hoveredIndex = -1;
 
     int hitTestItem (juce::Point<int> pos) const;
+    juce::String getTooltipForItemId (int itemId) const;
 
     std::unique_ptr<AutoChopPanel> autoChopPanel;
     std::unique_ptr<juce::Component> reseqPanel;

@@ -62,6 +62,7 @@ HeaderBar::HeaderBar (IntersectProcessor& p) : processor (p)
     undoBtn.setTooltip ("Undo (Ctrl+Z)");
     redoBtn.setTooltip ("Redo (Ctrl+Shift+Z)");
     loadBtn.setTooltip ("Load sample");
+    themeBtn.setTooltip ("Settings");
 
     undoBtn.onClick = [this]
     {
@@ -79,6 +80,21 @@ HeaderBar::HeaderBar (IntersectProcessor& p) : processor (p)
 
     loadBtn.onClick = [this] { openFileBrowser(); };
     themeBtn.onClick = [this] { showThemePopup(); };
+}
+
+juce::String HeaderBar::getTooltip()
+{
+    if (! sampleInfoBounds.contains (getMouseXYRelative()))
+        return {};
+
+    const auto& ui = processor.getUiSliceSnapshot();
+    if (ui.sampleMissing)
+        return "Relink sample";
+
+    if (ui.sampleLoaded)
+        return "Replace sample";
+
+    return "Load sample";
 }
 
 void HeaderBar::resized()

@@ -12,6 +12,54 @@ ActionPanel::ActionPanel (IntersectProcessor& p, WaveformView& wv)
 
 ActionPanel::~ActionPanel() = default;
 
+juce::String ActionPanel::getTooltip()
+{
+    const int idx = hitTestItem (getMouseXYRelative());
+    if (idx < 0)
+        return {};
+
+    return getTooltipForItemId (items[(size_t) idx].id);
+}
+
+juce::String ActionPanel::getTooltipForItemId (int itemId) const
+{
+    switch (itemId)
+    {
+        case 0:
+            return waveformView.isSliceDrawModeActive()
+                ? "Add slice: On (Shift+A)"
+                : "Add slice (Shift+A)";
+        case 1:
+            return processor.lazyChop.isActive()
+                ? "Stop lazy chop (Shift+Z)"
+                : "Start lazy chop (Shift+Z)";
+        case 2:
+            if (autoChopPanel != nullptr)
+                return "Close auto chop";
+            return "Auto chop (Shift+C)";
+        case 3:
+            return "Duplicate slice (Shift+D)";
+        case 4:
+            return "Delete slice (Delete)";
+        case 5:
+            return processor.snapToZeroCrossing.load()
+                ? "Snap to zero crossing: On (Shift+X)"
+                : "Snap to zero crossing (Shift+X)";
+        case 6:
+            return processor.midiSelectsSlice.load()
+                ? "Follow MIDI: On (Shift+F)"
+                : "Follow MIDI (Shift+F)";
+        case 7:
+            if (reseqPanel != nullptr)
+                return "Close resequence (Shift+R)";
+            return "Resequence MIDI (Shift+R)";
+        default:
+            break;
+    }
+
+    return {};
+}
+
 void ActionPanel::triggerAddSliceMode()
 {
     const bool nextState = ! waveformView.isSliceDrawModeActive();
@@ -146,6 +194,10 @@ void ActionPanel::showReseqPanel()
                 btn->setColour (juce::TextButton::textColourOffId, theme.text2);
                 addAndMakeVisible (btn);
             }
+
+            byPosBtn.setTooltip ("Assign MIDI notes by slice position");
+            byOrderBtn.setTooltip ("Assign MIDI notes by creation order");
+            cancelBtn.setTooltip ("Close resequence");
         }
 
         void paint (juce::Graphics& g) override

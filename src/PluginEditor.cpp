@@ -189,6 +189,12 @@ bool IntersectEditor::keyPressed (const juce::KeyPress& key)
             actionPanel.toggleFollowMidiSelection();
             return true;
         }
+
+        if (code == 'R')
+        {
+            actionPanel.triggerReseqMidi();
+            return true;
+        }
     }
 
     // Delete / Backspace - Delete Slice

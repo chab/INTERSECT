@@ -3,10 +3,12 @@
 
 class IntersectProcessor;
 
-class HeaderBar : public juce::Component
+class HeaderBar : public juce::Component,
+                  public juce::TooltipClient
 {
 public:
     explicit HeaderBar (IntersectProcessor& p);
+    juce::String getTooltip() override;
     void paint (juce::Graphics& g) override;
     void resized() override;
     void mouseDown (const juce::MouseEvent& e) override;

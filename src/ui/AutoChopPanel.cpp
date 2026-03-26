@@ -24,6 +24,7 @@ AutoChopPanel::AutoChopPanel (IntersectProcessor& p, WaveformView& wv)
     sensitivitySlider.setColour (juce::Slider::textBoxTextColourId, getTheme().text2);
     sensitivitySlider.setColour (juce::Slider::textBoxBackgroundColourId, getTheme().surface2.brighter (0.15f));
     sensitivitySlider.setColour (juce::Slider::textBoxOutlineColourId, getTheme().surface5);
+    sensitivitySlider.setTooltip ("Sensitivity");
 
     sensitivitySlider.onValueChange = [this] { updatePreview(); };
 
@@ -33,6 +34,7 @@ AutoChopPanel::AutoChopPanel (IntersectProcessor& p, WaveformView& wv)
     divisionsEditor.setColour (juce::TextEditor::outlineColourId, getTheme().surface5);
     divisionsEditor.setFont (IntersectLookAndFeel::makeFont (13.0f));
     divisionsEditor.setJustification (juce::Justification::centred);
+    divisionsEditor.setTooltip ("Split count");
 
     for (auto* btn : { &splitEqualBtn, &detectBtn, &cancelBtn })
     {
@@ -40,6 +42,10 @@ AutoChopPanel::AutoChopPanel (IntersectProcessor& p, WaveformView& wv)
         btn->setColour (juce::TextButton::textColourOnId, getTheme().text2);
         btn->setColour (juce::TextButton::textColourOffId, getTheme().text2);
     }
+
+    splitEqualBtn.setTooltip ("Split equal");
+    detectBtn.setTooltip ("Split transients");
+    cancelBtn.setTooltip ("Close auto chop");
 
     splitEqualBtn.onClick = [this] {
         int count = divisionsEditor.getText().getIntValue();
