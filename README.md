@@ -21,7 +21,7 @@ INTERSECT is a sample slicer instrument plugin (VST3/AU/Standalone) with per-sli
 
 ## Quick Start
 
-[![INTERSECT Quick Start Guide](https://img.youtube.com/vi/zsdtyIff2PQ/maxresdefault.jpg)](https://youtu.be/zsdtyIff2PQ)
+[Watch the Quick Start Guide on YouTube](https://youtu.be/zsdtyIff2PQ)
 
 ## Installation
 
