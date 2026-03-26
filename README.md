@@ -34,12 +34,12 @@ Download the latest release zip from [Releases](https://github.com/tucktuckg00se
 
 ### Release package contents
 
-| Platform | Included binaries |
-| --- | --- |
-| Windows x64 | `INTERSECT.vst3`, `INTERSECT.exe` |
-| Linux x64 | `INTERSECT.vst3`, `INTERSECT` (standalone) |
-| macOS arm64 | `INTERSECT.vst3`, `INTERSECT.component`, `INTERSECT.app` |
-| macOS x64 | `INTERSECT.vst3`, `INTERSECT.component`, `INTERSECT.app` |
+| Platform | Minimum OS | Included binaries |
+| --- | --- | --- |
+| Windows x64 | Windows 10 | `INTERSECT.vst3`, `INTERSECT.exe` |
+| Linux x64 | Ubuntu 22.04  or equivalent (glibc 2.35+) | `INTERSECT.vst3`, `INTERSECT` (standalone) |
+| macOS arm64 | macOS 10.13 (High Sierra) | `INTERSECT.vst3`, `INTERSECT.component`, `INTERSECT.app` |
+| macOS x64 | macOS 10.13 (High Sierra) | `INTERSECT.vst3`, `INTERSECT.component`, `INTERSECT.app` |
 
 ### Plugin install paths
 
