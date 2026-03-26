@@ -21,12 +21,7 @@ INTERSECT is a sample slicer instrument plugin (VST3/AU/Standalone) with per-sli
 
 ## Quick Start
 
-1. Load a sample with **LOAD**, click the sample name area in the header, or drag an audio file onto the waveform.
-2. Create slices with **ADD** (draw on the waveform), **LAZY** (real-time chop), or **AUTO** (transients / equal split).
-3. Use the bottom **Signal Chain** bar in `GLOBAL` mode to set playback, filter, amp, and output defaults for the whole sample.
-4. Select a slice, switch the Signal Chain to `SLICE`, and edit per-slice overrides where needed.
-5. Trigger slices from MIDI. New slices are mapped from root note `C2` (MIDI `36`) upward. Use **RESEQ** to reassign MIDI notes by audio position or creation order.
-6. Toggle **FM** if you want played MIDI notes to auto-select slices in the UI.
+[![INTERSECT Quick Start Guide](https://img.youtube.com/vi/zsdtyIff2PQ/maxresdefault.jpg)](https://youtu.be/zsdtyIff2PQ)
 
 ## Installation
 
