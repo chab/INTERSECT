@@ -11,6 +11,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Root note changes are now undoable
 - Undo no longer couples unrelated slice and global parameter changes
 
+### Removed
+- Removed unused SliceControlBar and SettingsPanel source files
+
 ### Changed
 - Action tooltips are shorter, and RESEQ now has a Shift+R shortcut.
 
