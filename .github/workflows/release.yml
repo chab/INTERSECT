@@ -18,7 +18,7 @@ jobs:
 
       - name: Get version
         shell: bash
-        run: echo "PLUGIN_VERSION=$(echo '${{ github.ref_name }}' | sed 's/^v//')" >> $GITHUB_ENV
+        run: echo "PLUGIN_VERSION=$(echo '${{ github.ref_name }}' | sed 's/^v//' | sed 's/-rc\.[0-9]*//')" >> $GITHUB_ENV
 
       - name: Configure
         run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DINTERSECT_VERSION=${{ env.PLUGIN_VERSION }}
@@ -52,7 +52,7 @@ jobs:
 
       - name: Get version
         shell: bash
-        run: echo "PLUGIN_VERSION=$(echo '${{ github.ref_name }}' | sed 's/^v//')" >> $GITHUB_ENV
+        run: echo "PLUGIN_VERSION=$(echo '${{ github.ref_name }}' | sed 's/^v//' | sed 's/-rc\.[0-9]*//')" >> $GITHUB_ENV
 
       - name: Configure
         run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DINTERSECT_VERSION=${{ env.PLUGIN_VERSION }}
@@ -81,7 +81,7 @@ jobs:
 
       - name: Get version
         shell: bash
-        run: echo "PLUGIN_VERSION=$(echo '${{ github.ref_name }}' | sed 's/^v//')" >> $GITHUB_ENV
+        run: echo "PLUGIN_VERSION=$(echo '${{ github.ref_name }}' | sed 's/^v//' | sed 's/-rc\.[0-9]*//')" >> $GITHUB_ENV
 
       - name: Configure
         run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_DEPLOYMENT_TARGET=10.13 -DINTERSECT_VERSION=${{ env.PLUGIN_VERSION }}
@@ -117,7 +117,7 @@ jobs:
 
       - name: Get version
         shell: bash
-        run: echo "PLUGIN_VERSION=$(echo '${{ github.ref_name }}' | sed 's/^v//')" >> $GITHUB_ENV
+        run: echo "PLUGIN_VERSION=$(echo '${{ github.ref_name }}' | sed 's/^v//' | sed 's/-rc\.[0-9]*//')" >> $GITHUB_ENV
 
       - name: Configure
         run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_DEPLOYMENT_TARGET=10.13 -DINTERSECT_VERSION=${{ env.PLUGIN_VERSION }}
