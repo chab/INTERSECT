@@ -40,10 +40,14 @@ struct Voice
     float        filterCutoff  = 8200.0f;
     float        filterReso    = 0.0f;
     float        filterDrive   = 0.0f;
+    float        filterDriveGain = 1.0f;
+    float        filterDriveTanhGain = 1.0f;
     float        filterEnvAmount = 0.0f;
     float        filterKeyTrackRatio = 1.0f;
     AdsrEnvelope filterEnvelope;
     SvfFilter    filterL1, filterR1, filterL2, filterR2;
+    SvfFilter::SvfCoeffs filterCoeffs;
+    int          filterCoeffCounter = 0;
 
     // Signalsmith stretch fields
     bool         stretchActive = false;

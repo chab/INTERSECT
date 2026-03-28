@@ -178,51 +178,67 @@ static inline float dbToLinear (float dB)
     return std::pow (10.0f, dB / 20.0f);
 }
 
-static inline float saturateSample (float x, float drivePercent)
+static inline void cacheDriveConstants (Voice& v)
 {
-    if (drivePercent <= 0.0f)
-        return x;
+    if (v.filterDrive <= 0.0f)
+    {
+        v.filterDriveGain = 0.0f;
+        v.filterDriveTanhGain = 1.0f;
+        return;
+    }
+    const float norm = juce::jlimit (0.0f, 1.0f, v.filterDrive / 100.0f);
+    v.filterDriveGain = 1.0f + norm * 12.0f;
+    v.filterDriveTanhGain = std::tanh (v.filterDriveGain);
+}
 
-    const float norm = juce::jlimit (0.0f, 1.0f, drivePercent / 100.0f);
-    const float gain = 1.0f + norm * 12.0f;
-    const float tanhGain = std::tanh (gain);
-    if (std::abs (tanhGain) < 1.0e-6f)
+static inline float saturateSample (float x, const Voice& v)
+{
+    if (v.filterDriveGain <= 0.0f)
         return x;
-    return std::tanh (x * gain) / tanhGain;
+    return std::tanh (x * v.filterDriveGain) / v.filterDriveTanhGain;
 }
 
 static inline float resonancePercentToQ (float resonancePercent)
 {
     const float norm = juce::jlimit (0.0f, 1.0f, resonancePercent / 100.0f);
-    return 0.7071f + norm * 11.2929f;
+    constexpr float kMinQ = 0.7071f;
+    constexpr float kMaxQ = 12.0f;
+    return kMinQ * std::pow (kMaxQ / kMinQ, norm);
 }
 
 static inline float computeFilterCutoff (const Voice& v, float sampleRate)
 {
     const float keyTrackedCutoff = v.filterCutoff * v.filterKeyTrackRatio;
     const float envLevel = v.filterEnvelope.getLevel();
-    const float cutoff = keyTrackedCutoff * std::pow (2.0f, v.filterEnvAmount * envLevel / 12.0f);
+    const float cutoff = keyTrackedCutoff * std::exp2f (v.filterEnvAmount * envLevel / 12.0f);
     return juce::jlimit (kMinFilterCutoffHz, sampleRate * 0.49f, cutoff);
 }
+
+static constexpr int kFilterCoeffUpdateInterval = 32;
 
 static inline void processVoiceFilter (Voice& v, float sampleRate, float& inOutL, float& inOutR)
 {
     if (! v.filterEnabled)
         return;
 
-    const float q = resonancePercentToQ (v.filterReso);
-    const float cutoff = computeFilterCutoff (v, sampleRate);
-    inOutL = saturateSample (inOutL, v.filterDrive);
-    inOutR = saturateSample (inOutR, v.filterDrive);
-    const auto coeffs = SvfFilter::computeCoeffs (cutoff, q, sampleRate);
+    if (--v.filterCoeffCounter <= 0)
+    {
+        v.filterCoeffCounter = kFilterCoeffUpdateInterval;
+        const float q = resonancePercentToQ (v.filterReso);
+        const float cutoff = computeFilterCutoff (v, sampleRate);
+        v.filterCoeffs = SvfFilter::computeCoeffs (cutoff, q, sampleRate);
+    }
 
-    float yL = v.filterL1.process (inOutL, coeffs, v.filterType);
-    float yR = v.filterR1.process (inOutR, coeffs, v.filterType);
+    inOutL = saturateSample (inOutL, v);
+    inOutR = saturateSample (inOutR, v);
+
+    float yL = v.filterL1.process (inOutL, v.filterCoeffs, v.filterType);
+    float yR = v.filterR1.process (inOutR, v.filterCoeffs, v.filterType);
 
     if (v.filterSlope > 0)
     {
-        yL = v.filterL2.process (yL, coeffs, v.filterType);
-        yR = v.filterR2.process (yR, coeffs, v.filterType);
+        yL = v.filterL2.process (yL, v.filterCoeffs, v.filterType);
+        yR = v.filterR2.process (yR, v.filterCoeffs, v.filterType);
     }
 
     inOutL = yL;
@@ -517,11 +533,12 @@ void VoicePool::startVoice (int voiceIdx, const VoiceStartParams& p,
                                     s.filterReso, p.globalFilterReso);
     v.filterDrive = sm.resolveParam (sliceIdx, kLockFilterDrive,
                                      s.filterDrive, p.globalFilterDrive);
+    cacheDriveConstants (v);
     const float keyTrackPercent = sm.resolveParam (sliceIdx, kLockFilterKeyTrack,
                                                    s.filterKeyTrack, p.globalFilterKeyTrack);
     const float keyTrackNorm = juce::jlimit (0.0f, 1.0f, keyTrackPercent / 100.0f);
     const float noteRatio = std::pow (2.0f, ((float) p.note - (float) p.rootNote) / 12.0f);
-    v.filterKeyTrackRatio = 1.0f + (noteRatio - 1.0f) * keyTrackNorm;
+    v.filterKeyTrackRatio = std::pow (noteRatio, keyTrackNorm);
     const float filterEnvAttack = sm.resolveParam (sliceIdx, kLockFilterEnvAttack,
                                                    s.filterEnvAttackSec, p.globalFilterEnvAttackSec);
     const float filterEnvDecay = sm.resolveParam (sliceIdx, kLockFilterEnvDecay,
@@ -537,6 +554,7 @@ void VoicePool::startVoice (int voiceIdx, const VoiceStartParams& p,
     v.filterR1.reset();
     v.filterL2.reset();
     v.filterR2.reset();
+    v.filterCoeffCounter = 0;
     v.filterEnvelope.noteOn (filterEnvAttack, filterEnvDecay, filterEnvSustain, filterEnvRelease, sampleRate);
 
     // Reset stretch state (guard against stale data from stolen voices)

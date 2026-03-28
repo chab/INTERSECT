@@ -158,11 +158,15 @@ juce::AudioProcessorValueTreeState::ParameterLayout ParamLayout::createLayout()
         juce::StringArray { "12dB", "24dB" },
         0));
 
-    params.push_back (std::make_unique<juce::AudioParameterFloat> (
-        juce::ParameterID { ParamIds::defaultFilterCutoff, 1 },
-        "Filter Cutoff",
-        juce::NormalisableRange<float> (kMinFilterCutoffHz, kMaxFilterCutoffHz, 1.0f),
-        8200.0f));
+    {
+        auto cutoffRange = juce::NormalisableRange<float> (kMinFilterCutoffHz, kMaxFilterCutoffHz, 1.0f);
+        cutoffRange.setSkewForCentre (1000.0f);
+        params.push_back (std::make_unique<juce::AudioParameterFloat> (
+            juce::ParameterID { ParamIds::defaultFilterCutoff, 1 },
+            "Filter Cutoff",
+            cutoffRange,
+            8200.0f));
+    }
 
     params.push_back (std::make_unique<juce::AudioParameterFloat> (
         juce::ParameterID { ParamIds::defaultFilterReso, 1 },

@@ -11,6 +11,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Action tooltips are shorter, and RESEQ now has a Shift+R shortcut
 
 ### Fixed
+- Filter key tracking now scales musically across the keyboard (previously over-tracked upward and under-tracked downward)
+- Filter resonance response is more evenly distributed across the knob range
+- Filter cutoff automation in the DAW now follows a logarithmic curve matching how we hear pitch
 - Slice numbers no longer drift outside their region when zoomed out with many slices
 - Signal chain background color is now consistent between global and slice tabs
 - Auto Chop transient markers now land at the true onset instead of slightly after
