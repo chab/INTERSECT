@@ -52,18 +52,19 @@ private:
     FailureFn onFailure;
 };
 
-static constexpr uint32_t kValidLockMask =
+static constexpr uint64_t kValidLockMask =
     kLockBpm | kLockPitch | kLockAlgorithm | kLockAttack | kLockDecay | kLockSustain
     | kLockRelease | kLockMuteGroup | kLockStretch | kLockTonality | kLockFormant
     | kLockFormantComp | kLockGrainMode | kLockVolume | kLockReleaseTail | kLockReverse
     | kLockOutputBus | kLockLoop | kLockOneShot | kLockCentsDetune | kLockFilterEnabled
     | kLockFilterType | kLockFilterSlope | kLockFilterCutoff | kLockFilterReso
     | kLockFilterDrive | kLockFilterKeyTrack | kLockFilterEnvAttack | kLockFilterEnvDecay
-    | kLockFilterEnvSustain | kLockFilterEnvRelease | kLockFilterEnvAmount;
+    | kLockFilterEnvSustain | kLockFilterEnvRelease | kLockFilterEnvAmount
+    | kLockFilterAsym;
 
 // Copies a global parameter value into a slice field based on the lock bit.
 // Used when locking a parameter to snapshot the current effective value.
-static void copyGlobalToSlice (Slice& s, const GlobalParamSnapshot& g, uint32_t bit)
+static void copyGlobalToSlice (Slice& s, const GlobalParamSnapshot& g, uint64_t bit)
 {
     switch (bit)
     {
@@ -98,6 +99,7 @@ static void copyGlobalToSlice (Slice& s, const GlobalParamSnapshot& g, uint32_t 
         case kLockFilterEnvSustain: s.filterEnvSustain = g.filterEnvSustain;        break;
         case kLockFilterEnvRelease: s.filterEnvReleaseSec = g.filterEnvReleaseSec;  break;
         case kLockFilterEnvAmount:  s.filterEnvAmount = g.filterEnvAmount;          break;
+        case kLockFilterAsym:       s.filterAsym = g.filterAsym;                  break;
         // kLockOutputBus: no global default — slice default (0) is correct.
         default: break;
     }
@@ -131,6 +133,7 @@ static Slice sanitiseRestoredSlice (Slice s)
     s.filterCutoff = juce::jlimit (kMinFilterCutoffHz, kMaxFilterCutoffHz, s.filterCutoff);
     s.filterReso = juce::jlimit (0.0f, 100.0f, s.filterReso);
     s.filterDrive = juce::jlimit (0.0f, 100.0f, s.filterDrive);
+    s.filterAsym = juce::jlimit (0.0f, 100.0f, s.filterAsym);
     s.filterKeyTrack = juce::jlimit (0.0f, 100.0f, s.filterKeyTrack);
     s.filterEnvAttackSec = juce::jlimit (0.0f, 10.0f, s.filterEnvAttackSec);
     s.filterEnvDecaySec = juce::jlimit (0.0f, 10.0f, s.filterEnvDecaySec);
@@ -141,7 +144,7 @@ static Slice sanitiseRestoredSlice (Slice s)
     return s;
 }
 
-constexpr int kCurrentStateVersion = 22;
+constexpr int kCurrentStateVersion = 23;
 constexpr std::array<double, 6> kLegacyCommonSampleRates { 44100.0, 48000.0, 88200.0,
                                                            96000.0, 176400.0, 192000.0 };
 
@@ -258,6 +261,7 @@ VoiceStartParams makeVoiceStartParams (const GlobalParamSnapshot& globals,
     params.globalFilterCutoff = globals.filterCutoffHz;
     params.globalFilterReso = globals.filterReso;
     params.globalFilterDrive = globals.filterDrive;
+    params.globalFilterAsym = globals.filterAsym;
     params.globalFilterKeyTrack = globals.filterKeyTrack;
     params.globalFilterEnvAttackSec = globals.filterEnvAttackSec;
     params.globalFilterEnvDecaySec = globals.filterEnvDecaySec;
@@ -315,6 +319,7 @@ IntersectProcessor::IntersectProcessor()
     filterCutoffParam = apvts.getRawParameterValue (ParamIds::defaultFilterCutoff);
     filterResoParam = apvts.getRawParameterValue (ParamIds::defaultFilterReso);
     filterDriveParam = apvts.getRawParameterValue (ParamIds::defaultFilterDrive);
+    filterAsymParam = apvts.getRawParameterValue (ParamIds::defaultFilterAsym);
     filterKeyTrackParam = apvts.getRawParameterValue (ParamIds::defaultFilterKeyTrack);
 	    filterEnvAttackParam = apvts.getRawParameterValue (ParamIds::defaultFilterEnvAttack);
 	    filterEnvDecayParam = apvts.getRawParameterValue (ParamIds::defaultFilterEnvDecay);
@@ -466,6 +471,7 @@ ParamUndoState IntersectProcessor::captureParamUndoState() const
     state.defaultFilterCutoff = load (filterCutoffParam, state.defaultFilterCutoff);
     state.defaultFilterReso = load (filterResoParam, state.defaultFilterReso);
     state.defaultFilterDrive = load (filterDriveParam, state.defaultFilterDrive);
+    state.defaultFilterAsym = load (filterAsymParam, state.defaultFilterAsym);
     state.defaultFilterKeyTrack = load (filterKeyTrackParam, state.defaultFilterKeyTrack);
     state.defaultFilterEnvAttack = load (filterEnvAttackParam, state.defaultFilterEnvAttack);
     state.defaultFilterEnvDecay = load (filterEnvDecayParam, state.defaultFilterEnvDecay);
@@ -537,6 +543,7 @@ void IntersectProcessor::applyParamUndoState (const ParamUndoState& state)
     apply (ParamIds::defaultFilterCutoff, state.defaultFilterCutoff);
     apply (ParamIds::defaultFilterReso, state.defaultFilterReso);
     apply (ParamIds::defaultFilterDrive, state.defaultFilterDrive);
+    apply (ParamIds::defaultFilterAsym, state.defaultFilterAsym);
     apply (ParamIds::defaultFilterKeyTrack, state.defaultFilterKeyTrack);
     apply (ParamIds::defaultFilterEnvAttack, state.defaultFilterEnvAttack);
     apply (ParamIds::defaultFilterEnvDecay, state.defaultFilterEnvDecay);
@@ -1210,7 +1217,7 @@ void IntersectProcessor::handleCommand (const Command& cmd)
             {
                 const auto globals = loadGlobalParamSnapshot();
                 auto& s = sliceManager.getSlice (sel);
-                uint32_t bit = (uint32_t) cmd.intParam1;
+                uint64_t bit = cmd.lockBitParam;
                 bool turningOn = !(s.lockMask & bit);
 
                 if (turningOn)
@@ -1232,7 +1239,7 @@ void IntersectProcessor::handleCommand (const Command& cmd)
                 float val = cmd.floatParam1;
                 constexpr float kCompareTolerance = 1.0e-4f;
 
-                auto setFloatField = [&s, kCompareTolerance] (float& target, float newValue, float globalValue, uint32_t lockBit)
+                auto setFloatField = [&s, kCompareTolerance] (float& target, float newValue, float globalValue, uint64_t lockBit)
                 {
                     target = newValue;
                     if (std::abs (target - globalValue) <= kCompareTolerance)
@@ -1241,7 +1248,7 @@ void IntersectProcessor::handleCommand (const Command& cmd)
                         s.lockMask |= lockBit;
                 };
 
-                auto setIntField = [&s] (int& target, int newValue, int globalValue, uint32_t lockBit)
+                auto setIntField = [&s] (int& target, int newValue, int globalValue, uint64_t lockBit)
                 {
                     target = newValue;
                     if (target == globalValue)
@@ -1250,7 +1257,7 @@ void IntersectProcessor::handleCommand (const Command& cmd)
                         s.lockMask |= lockBit;
                 };
 
-                auto setBoolField = [&s] (bool& target, bool newValue, bool globalValue, uint32_t lockBit)
+                auto setBoolField = [&s] (bool& target, bool newValue, bool globalValue, uint64_t lockBit)
                 {
                     target = newValue;
                     if (target == globalValue)
@@ -1357,6 +1364,9 @@ void IntersectProcessor::handleCommand (const Command& cmd)
                         break;
                     case FieldFilterEnvAmount:
                         setFloatField (s.filterEnvAmount, val, globals.filterEnvAmount, kLockFilterEnvAmount);
+                        break;
+                    case FieldFilterAsym:
+                        setFloatField (s.filterAsym, val, globals.filterAsym, kLockFilterAsym);
                         break;
                     case FieldMidiNote:
                         s.midiNote = juce::jlimit (0, kMaxMidiNote, (int) val);
@@ -2184,7 +2194,7 @@ void IntersectProcessor::getStateInformation (juce::MemoryBlock& destData)
         stream.writeInt (s.muteGroup);
         stream.writeInt (s.loopMode);
         stream.writeBool (s.stretchEnabled);
-        stream.writeInt ((int) s.lockMask);
+        stream.writeInt ((int)(s.lockMask & 0xFFFFFFFF));
         stream.writeInt ((int) s.colour.getARGB());
         // v5 fields
         stream.writeFloat (s.tonalityHz);
@@ -2216,6 +2226,9 @@ void IntersectProcessor::getStateInformation (juce::MemoryBlock& destData)
         stream.writeFloat (s.filterEnvSustain);
         stream.writeFloat (s.filterEnvReleaseSec);
         stream.writeFloat (s.filterEnvAmount);
+        // v23 fields
+        stream.writeFloat (s.filterAsym);
+        stream.writeInt ((int)(s.lockMask >> 32));
     }
 
     // v9: store file path only (no PCM)
@@ -2264,7 +2277,7 @@ void IntersectProcessor::setStateInformation (const void* data, int sizeInBytes)
     pendingStateRestoreToken.store (0, std::memory_order_release);
 
     int version = stream.readInt();
-    if (version != 19 && version != 20 && version != 21 && version != kCurrentStateVersion)
+    if (version != 19 && version != 20 && version != 21 && version != 22 && version != kCurrentStateVersion)
     {
         setUiStatusMessage ("Unsupported project state version v" + juce::String (version)
                             + ". This build supports v19-v" + juce::String (kCurrentStateVersion) + ".",
@@ -2319,7 +2332,7 @@ void IntersectProcessor::setStateInformation (const void* data, int sizeInBytes)
         parsed.muteGroup      = stream.readInt();
         parsed.loopMode       = stream.readInt();
         parsed.stretchEnabled = stream.readBool();
-        parsed.lockMask       = (uint32_t) stream.readInt();
+        parsed.lockMask       = (uint64_t)(uint32_t) stream.readInt();
         parsed.colour         = juce::Colour ((juce::uint32) stream.readInt());
         parsed.tonalityHz     = stream.readFloat();
         parsed.formantSemitones = stream.readFloat();
@@ -2350,6 +2363,12 @@ void IntersectProcessor::setStateInformation (const void* data, int sizeInBytes)
                 parsed.filterEnvAmount = 0.0f;
         }
 
+        if (version >= 23)
+        {
+            parsed.filterAsym = stream.readFloat();
+            parsed.lockMask |= ((uint64_t)(uint32_t) stream.readInt() << 32);
+        }
+
         if (i < validatedNumSlices)
             sliceManager.getSlice (i) = sanitiseRestoredSlice (parsed);
     }
@@ -2365,7 +2384,7 @@ void IntersectProcessor::setStateInformation (const void* data, int sizeInBytes)
     int savedSourceNumFrames = 0;
     double savedSourceSampleRate = 0.0;
 
-    if (version >= kCurrentStateVersion)
+    if (version >= 22)
     {
         savedDecodedNumFrames = stream.readInt();
         savedDecodedSampleRate = stream.readDouble();

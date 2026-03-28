@@ -3,7 +3,7 @@
 #include <cstdint>
 #include <juce_graphics/juce_graphics.h>
 
-enum LockBit : uint32_t
+enum LockBit : uint64_t
 {
     kLockBpm       = 1,
     kLockPitch     = 2,
@@ -36,7 +36,8 @@ enum LockBit : uint32_t
     kLockFilterEnvDecay   = 268435456u,
     kLockFilterEnvSustain = 536870912u,
     kLockFilterEnvRelease = 1073741824u,
-    kLockFilterEnvAmount  = 0x80000000u
+    kLockFilterEnvAmount  = 0x80000000u,
+    kLockFilterAsym       = 0x100000000ull
 };
 
 struct Slice
@@ -71,12 +72,13 @@ struct Slice
     float    filterCutoff  = 8200.0f;
     float    filterReso    = 0.0f;
     float    filterDrive   = 0.0f;
+    float    filterAsym    = 0.0f;
     float    filterKeyTrack = 0.0f;
     float    filterEnvAttackSec  = 0.0f;
     float    filterEnvDecaySec   = 0.0f;
     float    filterEnvSustain    = 1.0f;
     float    filterEnvReleaseSec = 0.0f;
     float    filterEnvAmount     = 0.0f; // semitones bipolar
-    uint32_t lockMask      = 0;
+    uint64_t lockMask      = 0;
     juce::Colour colour    { 0.4f, 0.7f, 0.95f, 1.0f };
 };

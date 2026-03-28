@@ -72,7 +72,7 @@ private:
         juce::String valueText;
         juce::String globalParamId;
         int fieldId = -1;
-        uint32_t lockBit = 0;
+        uint64_t lockBit = 0;
         DragMapping dragMapping = DragMapping::Linear;
         float currentValue = 0.0f;
         float minVal = 0.0f;
@@ -162,7 +162,7 @@ private:
     void toggleBooleanCell (const Cell& cell);
     void cycleChoiceCell (const Cell& cell);
     void applyCellValue (const Cell& cell, float storedValue, bool oneShotGlobal);
-    void clearSliceOverride (uint32_t lockBit);
+    void clearSliceOverride (uint64_t lockBit);
 
     void beginGlobalGesture (const Cell& cell);
     void endGlobalGesture();
@@ -172,9 +172,9 @@ private:
     void showTextEditor (const Cell& cell);
     void showRootEditor();
 
-    int countModuleOverrides (const ModuleLayout& module, uint32_t lockMask) const;
+    int countModuleOverrides (const ModuleLayout& module, uint64_t lockMask) const;
     int countEffectiveModuleOverrides (Module module, const Slice& slice, const GlobalParamSnapshot& globals) const;
-    int countAllOverrides (uint32_t lockMask) const;
+    int countAllOverrides (uint64_t lockMask) const;
     int countAllEffectiveOverrides (const Slice& slice, const GlobalParamSnapshot& globals) const;
 
     IntersectProcessor& processor;

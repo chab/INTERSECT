@@ -38,6 +38,7 @@ struct GlobalParamSnapshot
     float filterCutoffHz = 8200.0f;
     float filterReso = 0.0f;
     float filterDrive = 0.0f;
+    float filterAsym = 0.0f;
     float filterKeyTrack = 0.0f;
     float filterEnvAttackSec = 0.0f;
     float filterEnvDecaySec = 0.0f;
@@ -99,6 +100,7 @@ struct GlobalParamSnapshot
         snapshot.filterCutoffHz = loadFloat (ParamIds::defaultFilterCutoff, snapshot.filterCutoffHz);
         snapshot.filterReso = loadFloat (ParamIds::defaultFilterReso, snapshot.filterReso);
         snapshot.filterDrive = loadFloat (ParamIds::defaultFilterDrive, snapshot.filterDrive);
+        snapshot.filterAsym = loadFloat (ParamIds::defaultFilterAsym, snapshot.filterAsym);
         snapshot.filterKeyTrack = loadFloat (ParamIds::defaultFilterKeyTrack, snapshot.filterKeyTrack);
         snapshot.filterEnvAttackSec = loadFloat (ParamIds::defaultFilterEnvAttack, snapshot.filterEnvAttackSec * 1000.0f) / 1000.0f;
         snapshot.filterEnvDecaySec = loadFloat (ParamIds::defaultFilterEnvDecay, snapshot.filterEnvDecaySec * 1000.0f) / 1000.0f;

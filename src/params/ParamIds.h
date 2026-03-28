@@ -28,6 +28,7 @@ namespace ParamIds
     inline const juce::String defaultFilterCutoff      { "defaultFilterCutoff" };
     inline const juce::String defaultFilterReso        { "defaultFilterReso" };
     inline const juce::String defaultFilterDrive       { "defaultFilterDrive" };
+    inline const juce::String defaultFilterAsym        { "defaultFilterAsym" };
     inline const juce::String defaultFilterKeyTrack    { "defaultFilterKeyTrack" };
     inline const juce::String defaultFilterEnvAttack   { "defaultFilterEnvAttack" };
     inline const juce::String defaultFilterEnvDecay    { "defaultFilterEnvDecay" };

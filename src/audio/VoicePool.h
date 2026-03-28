@@ -40,6 +40,7 @@ struct VoiceStartParams
     float globalFilterCutoff  = 8200.0f;
     float globalFilterReso    = 0.0f;
     float globalFilterDrive   = 0.0f;
+    float globalFilterAsym    = 0.0f;
     float globalFilterKeyTrack = 0.0f;
     float globalFilterEnvAttackSec  = 0.0f;
     float globalFilterEnvDecaySec   = 0.0f;

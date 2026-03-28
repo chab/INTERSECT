@@ -147,7 +147,7 @@ std::pair<juce::Rectangle<int>, juce::Rectangle<int>> splitRows (juce::Rectangle
 
 template <typename ValueType>
 std::pair<ValueType, bool> resolveLockedValue (const Slice* selectedSlice,
-                                               uint32_t bit,
+                                               uint64_t bit,
                                                ValueType sliceValue,
                                                ValueType globalValue)
 {
@@ -183,25 +183,25 @@ void drawMiniButton (juce::Graphics& g,
     g.drawFittedText (text, bounds, juce::Justification::centred, 1);
 }
 
-std::array<uint32_t, 11> getModuleBits (SignalChainBar::Module module)
+std::array<uint64_t, 13> getModuleBits (SignalChainBar::Module module)
 {
     switch (module)
     {
         case SignalChainBar::Module::Playback:
             return { kLockBpm, kLockPitch, kLockCentsDetune, kLockAlgorithm, kLockStretch,
                      kLockTonality, kLockFormant, kLockFormantComp, kLockGrainMode,
-                     0u, 0u };
+                     0ull, 0ull, 0ull, 0ull };
         case SignalChainBar::Module::Filter:
             return { kLockFilterEnabled, kLockFilterType, kLockFilterSlope, kLockFilterCutoff,
-                     kLockFilterReso, kLockFilterDrive, kLockFilterKeyTrack,
+                     kLockFilterReso, kLockFilterDrive, kLockFilterAsym, kLockFilterKeyTrack,
                      kLockFilterEnvAttack, kLockFilterEnvDecay, kLockFilterEnvSustain,
-                     kLockFilterEnvRelease };
+                     kLockFilterEnvRelease, kLockFilterEnvAmount };
         case SignalChainBar::Module::Amp:
             return { kLockAttack, kLockDecay, kLockSustain, kLockRelease, kLockReleaseTail,
-                     0u, 0u, 0u, 0u, 0u, 0u };
+                     0ull, 0ull, 0ull, 0ull, 0ull, 0ull, 0ull, 0ull };
         case SignalChainBar::Module::Output:
             return { kLockReverse, kLockLoop, kLockOneShot, kLockMuteGroup, kLockVolume,
-                     kLockOutputBus, 0u, 0u, 0u, 0u, 0u };
+                     kLockOutputBus, 0ull, 0ull, 0ull, 0ull, 0ull, 0ull, 0ull };
     }
 
     return {};
@@ -303,16 +303,14 @@ void SignalChainBar::addParamCell (const Cell& cell)
     cells.push_back (cell);
 }
 
-int SignalChainBar::countModuleOverrides (const ModuleLayout& module, uint32_t lockMask) const
+int SignalChainBar::countModuleOverrides (const ModuleLayout& module, uint64_t lockMask) const
 {
     const auto bits = getModuleBits (module.module);
     int count = (int) std::count_if (bits.begin(), bits.end(),
-                                     [lockMask] (uint32_t bit)
+                                     [lockMask] (uint64_t bit)
                                      {
                                          return bit != 0 && (lockMask & bit) != 0;
                                      });
-    if (module.module == Module::Filter && (lockMask & kLockFilterEnvAmount) != 0)
-        ++count;
     return count;
 }
 
@@ -323,19 +321,19 @@ int SignalChainBar::countEffectiveModuleOverrides (Module module,
     if ((slice.lockMask) == 0)
         return 0;
 
-    auto checkBool = [&] (uint32_t bit, bool sliceVal, bool globalVal) -> int
+    auto checkBool = [&] (uint64_t bit, bool sliceVal, bool globalVal) -> int
     {
         if ((slice.lockMask & bit) == 0) return 0;
         return (sliceVal != globalVal) ? 1 : 0;
     };
 
-    auto checkInt = [&] (uint32_t bit, int sliceVal, int globalVal) -> int
+    auto checkInt = [&] (uint64_t bit, int sliceVal, int globalVal) -> int
     {
         if ((slice.lockMask & bit) == 0) return 0;
         return (sliceVal != globalVal) ? 1 : 0;
     };
 
-    auto checkFloat = [&] (uint32_t bit, float sliceVal, float globalVal) -> int
+    auto checkFloat = [&] (uint64_t bit, float sliceVal, float globalVal) -> int
     {
         if ((slice.lockMask & bit) == 0) return 0;
         return (std::abs (sliceVal - globalVal) > 1e-4f) ? 1 : 0;
@@ -364,6 +362,7 @@ int SignalChainBar::countEffectiveModuleOverrides (Module module,
             count += checkFloat (kLockFilterCutoff, slice.filterCutoff, globals.filterCutoffHz);
             count += checkFloat (kLockFilterReso, slice.filterReso, globals.filterReso);
             count += checkFloat (kLockFilterDrive, slice.filterDrive, globals.filterDrive);
+            count += checkFloat (kLockFilterAsym, slice.filterAsym, globals.filterAsym);
             count += checkFloat (kLockFilterKeyTrack, slice.filterKeyTrack, globals.filterKeyTrack);
             count += checkFloat (kLockFilterEnvAttack, slice.filterEnvAttackSec, globals.filterEnvAttackSec);
             count += checkFloat (kLockFilterEnvDecay, slice.filterEnvDecaySec, globals.filterEnvDecaySec);
@@ -394,7 +393,7 @@ int SignalChainBar::countEffectiveModuleOverrides (Module module,
     return count;
 }
 
-int SignalChainBar::countAllOverrides (uint32_t lockMask) const
+int SignalChainBar::countAllOverrides (uint64_t lockMask) const
 {
     int count = 0;
     for (auto moduleId : { Module::Playback, Module::Filter, Module::Amp, Module::Output })
@@ -1041,7 +1040,7 @@ void SignalChainBar::rebuildFilterModule (const LayoutInput& input,
         { 0.82f, kCellGap }, { 0.9f, kCellGap }, { 1.18f, kCellGap }, { 0.96f, kCellGap }, { 0.94f, kCellGap }, { 0.84f, 0 }
     });
     const auto row2 = makeRowCells (rows.second, {
-        { 0.92f, kCellGap }, { 0.92f, kCellGap }, { 0.82f, kCellGap }, { 0.95f, kGroupGap }, { 1.06f, 0 }
+        { 0.84f, kCellGap }, { 0.88f, kCellGap }, { 0.88f, kCellGap }, { 0.78f, kCellGap }, { 0.88f, kGroupGap }, { 1.0f, 0 }
     });
 
     const auto [filterEnabled, filterEnabledLocked] = input.sliceScope
@@ -1062,6 +1061,9 @@ void SignalChainBar::rebuildFilterModule (const LayoutInput& input,
     const auto [filterDrive, filterDriveLocked] = input.sliceScope
         ? resolveLockedValue (selectedSlice, kLockFilterDrive, selectedSlice->filterDrive, globals.filterDrive)
         : std::pair<float, bool> { globals.filterDrive, false };
+    const auto [filterAsym, filterAsymLocked] = input.sliceScope
+        ? resolveLockedValue (selectedSlice, kLockFilterAsym, selectedSlice->filterAsym, globals.filterAsym)
+        : std::pair<float, bool> { globals.filterAsym, false };
     const auto [filterKey, filterKeyLocked] = input.sliceScope
         ? resolveLockedValue (selectedSlice, kLockFilterKeyTrack, selectedSlice->filterKeyTrack, globals.filterKeyTrack)
         : std::pair<float, bool> { globals.filterKeyTrack, false };
@@ -1108,7 +1110,7 @@ void SignalChainBar::rebuildFilterModule (const LayoutInput& input,
                                                 const juce::String& valueText,
                                                 const juce::String& globalId,
                                                 int fieldId,
-                                                uint32_t lockBit,
+                                                uint64_t lockBit,
                                                 float value,
                                                 float minValue,
                                                 float maxValue,
@@ -1163,9 +1165,9 @@ void SignalChainBar::rebuildFilterModule (const LayoutInput& input,
     addFilterCell (row1[4], "DRIVE", formatPercent (filterDrive, 1),
                    ParamIds::defaultFilterDrive, IntersectProcessor::FieldFilterDrive, kLockFilterDrive,
                    filterDrive, 0.0f, 100.0f, 0.1f, 0.5f, 1, false, 0, filterDriveLocked, DragMapping::Linear, false, 1.0f, true);
-    addFilterCell (row1[5], "KEY", formatPercent (filterKey, 1),
-                   ParamIds::defaultFilterKeyTrack, IntersectProcessor::FieldFilterKeyTrack, kLockFilterKeyTrack,
-                   filterKey, 0.0f, 100.0f, 0.1f, 0.5f, 1, false, 0, filterKeyLocked);
+    addFilterCell (row1[5], "ASYM", formatPercent (filterAsym, 1),
+                   ParamIds::defaultFilterAsym, IntersectProcessor::FieldFilterAsym, kLockFilterAsym,
+                   filterAsym, 0.0f, 100.0f, 0.1f, 0.5f, 1, false, 0, filterAsymLocked);
 
     const float filterAtkDisplayValue = filterAtkSec * 1000.0f;
     const float filterDecDisplayValue = filterDecSec * 1000.0f;
@@ -1173,26 +1175,29 @@ void SignalChainBar::rebuildFilterModule (const LayoutInput& input,
     const float filterSusDisplayValue = input.sliceScope ? filterSus * 100.0f : globals.filterEnvSustain * 100.0f;
     const float filterRelDisplayValue = filterRelSec * 1000.0f;
 
-    addFilterCell (row2[0], "ATK", formatMs (filterAtkDisplayValue),
+    addFilterCell (row2[0], "KEY", formatPercent (filterKey, 1),
+                   ParamIds::defaultFilterKeyTrack, IntersectProcessor::FieldFilterKeyTrack, kLockFilterKeyTrack,
+                   filterKey, 0.0f, 100.0f, 0.1f, 0.5f, 1, false, 0, filterKeyLocked, DragMapping::Linear, false, 1.0f, true);
+    addFilterCell (row2[1], "ATK", formatMs (filterAtkDisplayValue),
                    ParamIds::defaultFilterEnvAttack, IntersectProcessor::FieldFilterEnvAttack, kLockFilterEnvAttack,
                    input.sliceScope ? filterAtkSec : filterAtkDisplayValue,
                    0.0f, input.sliceScope ? 10.0f : 10000.0f, input.sliceScope ? 0.001f : 1.0f,
                    1.0f, 0, false, 0, filterAtkLocked, DragMapping::Linear, false, input.sliceScope ? 1000.0f : 1.0f, true);
-    addFilterCell (row2[1], "DEC", formatMs (filterDecDisplayValue),
+    addFilterCell (row2[2], "DEC", formatMs (filterDecDisplayValue),
                    ParamIds::defaultFilterEnvDecay, IntersectProcessor::FieldFilterEnvDecay, kLockFilterEnvDecay,
                    input.sliceScope ? filterDecSec : filterDecDisplayValue,
                    0.0f, input.sliceScope ? 10.0f : 10000.0f, input.sliceScope ? 0.001f : 1.0f,
                    1.0f, 0, false, 0, filterDecLocked, DragMapping::Linear, false, input.sliceScope ? 1000.0f : 1.0f, true);
-    addFilterCell (row2[2], "SUS", formatPercent (filterSusDisplayValue, 1),
+    addFilterCell (row2[3], "SUS", formatPercent (filterSusDisplayValue, 1),
                    ParamIds::defaultFilterEnvSustain, IntersectProcessor::FieldFilterEnvSustain, kLockFilterEnvSustain,
                    filterSusValue, 0.0f, input.sliceScope ? 1.0f : 100.0f, input.sliceScope ? 0.001f : 0.1f,
                    0.5f, 1, false, 0, filterSusLocked, DragMapping::Linear, false, input.sliceScope ? 100.0f : 1.0f, true);
-    addFilterCell (row2[3], "REL", formatMs (filterRelDisplayValue),
+    addFilterCell (row2[4], "REL", formatMs (filterRelDisplayValue),
                    ParamIds::defaultFilterEnvRelease, IntersectProcessor::FieldFilterEnvRelease, kLockFilterEnvRelease,
                    input.sliceScope ? filterRelSec : filterRelDisplayValue,
                    0.0f, input.sliceScope ? 10.0f : 10000.0f, input.sliceScope ? 0.001f : 1.0f,
                    1.0f, 0, false, 0, filterRelLocked, DragMapping::Linear, false, input.sliceScope ? 1000.0f : 1.0f, true);
-    addFilterCell (row2[4], "AMT", formatSigned (filterAmt, 1, "st"),
+    addFilterCell (row2[5], "AMT", formatSigned (filterAmt, 1, "st"),
                    ParamIds::defaultFilterEnvAmount, IntersectProcessor::FieldFilterEnvAmount, kLockFilterEnvAmount,
                    filterAmt, -96.0f, 96.0f, 0.1f, 0.2f, 1, false, 0, filterAmtLocked);
 }
@@ -1230,7 +1235,7 @@ void SignalChainBar::rebuildAmpModule (const LayoutInput& input,
                               const juce::String& valueText,
                               const juce::String& globalId,
                               int fieldId,
-                              uint32_t lockBit,
+                              uint64_t lockBit,
                               float value,
                               float minValue,
                               float maxValue,
@@ -1330,7 +1335,7 @@ void SignalChainBar::rebuildOutputModule (const LayoutInput& input,
                                  const juce::String& valueText,
                                  const juce::String& globalId,
                                  int fieldId,
-                                 uint32_t lockBit,
+                                 uint64_t lockBit,
                                  float value,
                                  float minValue,
                                  float maxValue,
@@ -1760,14 +1765,14 @@ void SignalChainBar::applyCellValue (const Cell& cell, float storedValue, bool o
     }
 }
 
-void SignalChainBar::clearSliceOverride (uint32_t lockBit)
+void SignalChainBar::clearSliceOverride (uint64_t lockBit)
 {
     if (lockBit == 0)
         return;
 
     IntersectProcessor::Command cmd;
     cmd.type = IntersectProcessor::CmdToggleLock;
-    cmd.intParam1 = (int) lockBit;
+    cmd.lockBitParam = lockBit;
     cmd.sliceIdx = processor.sliceManager.selectedSlice.load();
     processor.pushCommand (cmd);
     layoutDirty = true;

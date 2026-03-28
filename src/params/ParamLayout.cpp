@@ -181,6 +181,12 @@ juce::AudioProcessorValueTreeState::ParameterLayout ParamLayout::createLayout()
         0.0f));
 
     params.push_back (std::make_unique<juce::AudioParameterFloat> (
+        juce::ParameterID { ParamIds::defaultFilterAsym, 1 },
+        "Filter Drive Asymmetry",
+        juce::NormalisableRange<float> (0.0f, 100.0f, 0.1f),
+        0.0f));
+
+    params.push_back (std::make_unique<juce::AudioParameterFloat> (
         juce::ParameterID { ParamIds::defaultFilterKeyTrack, 1 },
         "Filter Key Track",
         juce::NormalisableRange<float> (0.0f, 100.0f, 0.1f),

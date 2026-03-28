@@ -27,6 +27,7 @@ struct ParamUndoState
     float defaultFilterCutoff = 8200.0f;
     float defaultFilterReso = 0.0f;
     float defaultFilterDrive = 0.0f;
+    float defaultFilterAsym = 0.0f;
     float defaultFilterKeyTrack = 0.0f;
     float defaultFilterEnvAttack = 0.0f;
     float defaultFilterEnvDecay = 0.0f;

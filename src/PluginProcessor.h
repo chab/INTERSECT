@@ -120,6 +120,7 @@ public:
         FieldFilterEnvSustain,
         FieldFilterEnvRelease,
         FieldFilterEnvAmount,
+        FieldFilterAsym,
     };
 
     enum class MidiEditAction
@@ -163,6 +164,7 @@ public:
         int intParam1 = 0;
         int intParam2 = 0;
         float floatParam1 = 0.0f;
+        uint64_t lockBitParam = 0;
         juce::File fileParam;
         // Fixed-size array avoids heap allocation/deallocation on the audio thread.
         std::array<int, 128> positions {};
@@ -459,6 +461,7 @@ private:
     std::atomic<float>* filterCutoffParam     = nullptr;
     std::atomic<float>* filterResoParam       = nullptr;
     std::atomic<float>* filterDriveParam      = nullptr;
+    std::atomic<float>* filterAsymParam       = nullptr;
     std::atomic<float>* filterKeyTrackParam   = nullptr;
     std::atomic<float>* filterEnvAttackParam  = nullptr;
     std::atomic<float>* filterEnvDecayParam   = nullptr;

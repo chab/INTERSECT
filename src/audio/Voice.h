@@ -40,8 +40,17 @@ struct Voice
     float        filterCutoff  = 8200.0f;
     float        filterReso    = 0.0f;
     float        filterDrive   = 0.0f;
+    float        filterAsym    = 0.0f;
     float        filterDriveGain = 1.0f;
-    float        filterDriveTanhGain = 1.0f;
+    float        satBias       = 0.0f;
+    float        satOffset     = 0.0f;
+    float        satNorm       = 1.0f;
+    float        dcPrevInL     = 0.0f;
+    float        dcPrevInR     = 0.0f;
+    float        dcPrevOutL    = 0.0f;
+    float        dcPrevOutR    = 0.0f;
+    float        dcCoeffR      = 0.0f;
+    bool         dcBlockerActive = false;
     float        filterEnvAmount = 0.0f;
     float        filterKeyTrackRatio = 1.0f;
     AdsrEnvelope filterEnvelope;

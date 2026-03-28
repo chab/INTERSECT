@@ -178,24 +178,35 @@ static inline float dbToLinear (float dB)
     return std::pow (10.0f, dB / 20.0f);
 }
 
-static inline void cacheDriveConstants (Voice& v)
+static inline void cacheSaturationConstants (Voice& v)
 {
     if (v.filterDrive <= 0.0f)
     {
         v.filterDriveGain = 0.0f;
-        v.filterDriveTanhGain = 1.0f;
+        v.satBias = v.satOffset = 0.0f;
+        v.satNorm = 1.0f;
+        v.dcBlockerActive = false;
         return;
     }
-    const float norm = juce::jlimit (0.0f, 1.0f, v.filterDrive / 100.0f);
-    v.filterDriveGain = 1.0f + norm * 12.0f;
-    v.filterDriveTanhGain = std::tanh (v.filterDriveGain);
+    const float driveNorm = juce::jlimit (0.0f, 1.0f, v.filterDrive / 100.0f);
+    const float asymNorm  = juce::jlimit (0.0f, 1.0f, v.filterAsym / 100.0f);
+    const float gain = 1.0f + driveNorm * 12.0f;
+    const float bias = asymNorm * 0.5f;
+
+    v.filterDriveGain = gain;
+    v.satBias   = bias;
+    v.satOffset = std::tanh (bias * gain);
+    const float pos = std::abs (std::tanh ((1.0f + bias) * gain) - v.satOffset);
+    const float neg = std::abs (std::tanh ((-1.0f + bias) * gain) - v.satOffset);
+    v.satNorm   = juce::jmax (1e-6f, juce::jmax (pos, neg));
+    v.dcBlockerActive = asymNorm > 0.0f;
 }
 
 static inline float saturateSample (float x, const Voice& v)
 {
     if (v.filterDriveGain <= 0.0f)
         return x;
-    return std::tanh (x * v.filterDriveGain) / v.filterDriveTanhGain;
+    return (std::tanh ((x + v.satBias) * v.filterDriveGain) - v.satOffset) / v.satNorm;
 }
 
 static inline float resonancePercentToQ (float resonancePercent)
@@ -231,6 +242,15 @@ static inline void processVoiceFilter (Voice& v, float sampleRate, float& inOutL
 
     inOutL = saturateSample (inOutL, v);
     inOutR = saturateSample (inOutR, v);
+
+    if (v.dcBlockerActive)
+    {
+        float outL = inOutL - v.dcPrevInL + v.dcCoeffR * v.dcPrevOutL;
+        v.dcPrevInL = inOutL;  v.dcPrevOutL = outL;  inOutL = outL;
+
+        float outR = inOutR - v.dcPrevInR + v.dcCoeffR * v.dcPrevOutR;
+        v.dcPrevInR = inOutR;  v.dcPrevOutR = outR;  inOutR = outR;
+    }
 
     float yL = v.filterL1.process (inOutL, v.filterCoeffs, v.filterType);
     float yR = v.filterR1.process (inOutR, v.filterCoeffs, v.filterType);
@@ -346,6 +366,13 @@ void VoicePool::initPreviewVoiceCommon (Voice& v,
     v.filterCutoff  = 8200.0f;
     v.filterReso    = 0.0f;
     v.filterDrive   = 0.0f;
+    v.filterAsym    = 0.0f;
+    v.filterDriveGain = 0.0f;
+    v.satBias = v.satOffset = 0.0f;
+    v.satNorm = 1.0f;
+    v.dcBlockerActive = false;
+    v.dcPrevInL = v.dcPrevInR = v.dcPrevOutL = v.dcPrevOutR = 0.0f;
+    v.dcCoeffR = 0.0f;
     v.filterEnvAmount = 0.0f;
     v.filterKeyTrackRatio = 1.0f;
     v.filterL1.reset();
@@ -533,7 +560,11 @@ void VoicePool::startVoice (int voiceIdx, const VoiceStartParams& p,
                                     s.filterReso, p.globalFilterReso);
     v.filterDrive = sm.resolveParam (sliceIdx, kLockFilterDrive,
                                      s.filterDrive, p.globalFilterDrive);
-    cacheDriveConstants (v);
+    v.filterAsym = sm.resolveParam (sliceIdx, kLockFilterAsym,
+                                    s.filterAsym, p.globalFilterAsym);
+    cacheSaturationConstants (v);
+    v.dcCoeffR = 1.0f - (2.0f * juce::MathConstants<float>::pi * 20.0f / (float) sampleRate);
+    v.dcPrevInL = v.dcPrevInR = v.dcPrevOutL = v.dcPrevOutR = 0.0f;
     const float keyTrackPercent = sm.resolveParam (sliceIdx, kLockFilterKeyTrack,
                                                    s.filterKeyTrack, p.globalFilterKeyTrack);
     const float keyTrackNorm = juce::jlimit (0.0f, 1.0f, keyTrackPercent / 100.0f);
