@@ -64,7 +64,7 @@ xattr -cr /Applications/INTERSECT.app
 5. **Playback model:** MIDI triggers slices by note mapping; mute groups can choke voices in the same group.
 6. **Algorithms:**
    - `Repitch`: pitch and speed are linked.
-   - `Stretch`: independent time/pitch via Signalsmith Stretch (`TONAL`, `FMNT`, `FMNT C`).
+   - `Signalsmith`: independent time/pitch via Signalsmith Stretch (`TONAL`, `FMNT`, `FMNT C`).
    - `Bungee`: granular stretch mode with `GRAIN` choices (`Fast`, `Normal`, `Smooth`).
 7. **Repitch + Stretch interaction:** when `ALGO=Repitch` and `STRETCH=ON`, `PITCH` and `TUNE` become BPM-driven read-only displays.
 8. **SET BPM:** available in the Playback module for both `GLOBAL` and `SLICE`; it calculates BPM from musical duration.
@@ -72,9 +72,10 @@ xattr -cr /Applications/INTERSECT.app
 10. **Filter envelope amount:** `AMT` is measured in semitones, so `+12 st` means the envelope can push cutoff up by one octave and `-12 st` means one octave down. This stays consistent across low and high base cutoff values.
 11. **Key tracking:** `KEY` is a percentage of note tracking. `0%` ignores note pitch, `100%` makes cutoff follow pitch at full keyboard scaling, and intermediate values blend between them.
 12. **Drive:** `DRIVE` is pre-filter saturation. It adds harmonics before the filter rather than simply turning the signal up.
-13. **Load behavior:** file decoding/loading is asynchronous (off the audio thread).
-14. **Undo/redo:** snapshot-based history for slice and parameter edits.
-15. **MIDI host stop handling:** responds to `All Notes Off (CC 123)` and `All Sound Off (CC 120)`.
+13. **Drive asymmetry:** `ASYM` biases the drive waveshaper to produce even-harmonic saturation, adding a warmer, tube-like character. A DC blocker engages automatically when asymmetry is above zero.
+14. **Load behavior:** file decoding/loading is asynchronous (off the audio thread).
+15. **Undo/redo:** snapshot-based history for slice and parameter edits.
+16. **MIDI host stop handling:** responds to `All Notes Off (CC 123)` and `All Sound Off (CC 120)`.
 
 ## Interface Layout
 
@@ -161,10 +162,10 @@ General behavior:
 | `SET BPM` | Calculate BPM from duration menu | 16 bars to 1/16 note |
 | `PITCH` | Semitone shift | `-48` to `+48 st` |
 | `TUNE` | Fine detune | `-100` to `+100 ct` |
-| `ALGO` | Playback algorithm | `Repitch`, `Stretch`, `Bungee` |
-| `TONAL` | Tonality limit | Stretch only |
-| `FMNT` | Formant shift | Stretch only |
-| `FMNT C` | Formant compensation | Stretch only |
+| `ALGO` | Playback algorithm | `Repitch`, `Signalsmith`, `Bungee` |
+| `TONAL` | Tonality limit | Signalsmith only |
+| `FMNT` | Formant shift | Signalsmith only |
+| `FMNT C` | Formant compensation | Signalsmith only |
 | `GRAIN` | Grain mode | Bungee only: `Fast`, `Normal`, `Smooth` |
 | `STRETCH` | Tempo-sync stretch toggle | Works with the selected algorithm |
 | `1SHOT` | One-shot playback | Ignores note-off until the slice ends |
@@ -183,13 +184,14 @@ Playback notes:
 | `CUT` | Base cutoff frequency | Displayed in Hz |
 | `RESO` | Resonance amount | Higher values emphasize the cutoff region |
 | `DRIVE` | Pre-filter saturation | Adds harmonics before filtering |
+| `ASYM` | Drive asymmetry | Biases waveshaper toward even harmonics for a warmer tone |
 | `KEY` | Key tracking amount | `0-100%`, relative to the slice/root note mapping |
 | `ATK / DEC / SUS / REL` | Filter envelope shape | Separate from the amp envelope |
 | `AMT` | Filter envelope depth | Bipolar semitone offset (`st`) applied to cutoff |
 
 Filter notes:
 - Start with `ON`, `TYPE=LP`, modest `RESO`, and a lower `CUT` to hear the filter clearly.
-- Raise `DRIVE` if you want a dirtier or more aggressive tone before the filter stage.
+- Raise `DRIVE` if you want a dirtier or more aggressive tone before the filter stage. Add `ASYM` to bias the saturation toward even harmonics for a warmer, tube-like character.
 - Use `KEY` when you want higher MIDI notes to sound brighter and lower notes darker.
 - Use positive `AMT` for a classic opening filter envelope and negative `AMT` for an inverted sweep.
 - `AMT` is in semitones because it controls octave-style movement of cutoff. `+12 st` doubles the cutoff, `-12 st` halves it.
@@ -230,11 +232,14 @@ Filter notes:
 
 Requires a selected slice before opening.
 
+All three parameter cells support drag-to-edit (drag up/down) and double-click text entry.
+
 | Control | Function |
 | --- | --- |
-| `SENS` | Transient sensitivity (`0-100%`) with live marker preview |
+| `SENS` | Transient detection threshold (`0–100%`) with live marker preview |
+| `MIN` | Minimum slice length (`20–500 ms`) — suppresses transients too close together |
 | `SPLIT TRANSIENTS` | Split selected slice at detected transients |
-| `DIV` | Equal split count (`2-128`) |
+| `DIV` | Equal split count (`2–128`) |
 | `SPLIT EQUAL` | Split selected slice into equal divisions |
 | `CANCEL` | Close panel without applying |
 
