@@ -5,6 +5,8 @@ All notable changes to INTERSECT will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
+
+## [0.11.0] - 2026-03-28
 ### Added
 - Filter drive asymmetry (ASYM) parameter — biases the drive waveshaper to add even-harmonic saturation for more tonal variety
 
