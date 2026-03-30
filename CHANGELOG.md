@@ -5,6 +5,8 @@ All notable changes to INTERSECT will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
+### Added
+- "Buy Me a Coffee" sponsor link in the Settings menu
 
 ## [0.11.0] - 2026-03-28
 ### Added

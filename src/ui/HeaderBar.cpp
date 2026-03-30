@@ -16,6 +16,7 @@ enum ThemeMenuItemId
     kMenuSetMidiOmni,
     kMenuMidiPrev,
     kMenuMidiNext,
+    kMenuSponsor,
     kMenuThemeBase = 2000
 };
 
@@ -260,6 +261,9 @@ void HeaderBar::showThemePopup()
     menu.addSeparator();
     menu.addSubMenu (formatNrpnStatus (nrpnCh), nrpnMenu);
     menu.addSubMenu ("Themes  " + currentName, themesMenu);
+    menu.addSeparator();
+    menu.addSectionHeader ("Support");
+    menu.addItem (kMenuSponsor, juce::CharPointer_UTF8 ("\xe2\x98\x95  Buy Me a Coffee"));
 
     auto* topLevel = getTopLevelComponent();
     float ms = IntersectLookAndFeel::getMenuScale();
@@ -307,6 +311,10 @@ void HeaderBar::showThemePopup()
                 const int ch = processor.midiEditState.channel.load (std::memory_order_relaxed);
                 processor.midiEditState.channel.store (juce::jlimit (0, 16, ch + 1), std::memory_order_relaxed);
                 editor->saveUserSettings (scale, getTheme().name);
+            }
+            else if (result == kMenuSponsor)
+            {
+                juce::URL ("https://buymeacoffee.com/tucktuckgoose").launchInDefaultBrowser();
             }
             else if (result >= kMenuThemeBase && result < kMenuThemeBase + themes.size())
             {
