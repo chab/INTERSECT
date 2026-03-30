@@ -547,6 +547,7 @@ void SignalChainBar::rebuildLayout()
     contextStatusBounds = {};
     contextDot1Bounds = {};
     contextDot2Bounds = {};
+    contextMidiToBounds = {};
     contextSlicesBounds = {};
     contextRootBounds = {};
     globalStripBounds = {};
@@ -665,6 +666,10 @@ void SignalChainBar::rebuildContextBar (const LayoutInput& input)
             contextRow.items.add (juce::FlexItem().withWidth (10.0f));
             const int midiItemIndex = contextRow.items.size();
             contextRow.items.add (juce::FlexItem().withWidth (50.0f));
+            const int midiToItemIndex = contextRow.items.size();
+            contextRow.items.add (juce::FlexItem().withWidth (18.0f));
+            const int midiHighItemIndex = contextRow.items.size();
+            contextRow.items.add (juce::FlexItem().withWidth (32.0f));
             contextRow.items.add (juce::FlexItem().withFlex (1.0f));
             const int statusItemIndex = contextRow.items.size();
             contextRow.items.add (juce::FlexItem().withWidth (90.0f));
@@ -712,6 +717,22 @@ void SignalChainBar::rebuildContextBar (const LayoutInput& input)
             midiCell.step = 1.0f;
             midiCell.dragPerPixel = 0.25f;
             addParamCell (midiCell);
+
+            contextMidiToBounds = toIntBounds (contextRow.items[midiToItemIndex].currentBounds);
+
+            Cell midiHighCell;
+            midiHighCell.module = Module::Playback;
+            midiHighCell.bounds = toIntBounds (contextRow.items[midiHighItemIndex].currentBounds);
+            midiHighCell.valueText = juce::String (input.selectedSlice->midiNoteHigh);
+            midiHighCell.isContextInline = true;
+            midiHighCell.isSliceScopeCell = true;
+            midiHighCell.fieldId = IntersectProcessor::FieldMidiNoteHigh;
+            midiHighCell.currentValue = (float) input.selectedSlice->midiNoteHigh;
+            midiHighCell.minVal = (float) input.selectedSlice->midiNote;
+            midiHighCell.maxVal = (float) kMaxMidiNote;
+            midiHighCell.step = 1.0f;
+            midiHighCell.dragPerPixel = 0.25f;
+            addParamCell (midiHighCell);
         }
         else
         {
@@ -764,6 +785,10 @@ void SignalChainBar::rebuildContextBar (const LayoutInput& input)
         contextRow.items.add (juce::FlexItem().withWidth (10.0f));
         const int midiItemIndex = contextRow.items.size();
         contextRow.items.add (juce::FlexItem().withWidth (50.0f));
+        const int midiToItemIndex = contextRow.items.size();
+        contextRow.items.add (juce::FlexItem().withWidth (18.0f));
+        const int midiHighItemIndex = contextRow.items.size();
+        contextRow.items.add (juce::FlexItem().withWidth (32.0f));
         contextRow.items.add (juce::FlexItem().withFlex (1.0f));
         const int statusItemIndex = contextRow.items.size();
         contextRow.items.add (juce::FlexItem().withWidth (90.0f));
@@ -804,6 +829,21 @@ void SignalChainBar::rebuildContextBar (const LayoutInput& input)
         midiCell.step = 1.0f;
         midiCell.dragPerPixel = 0.25f;
         addParamCell (midiCell);
+
+        contextMidiToBounds = toIntBounds (contextRow.items[midiToItemIndex].currentBounds);
+
+        Cell midiHighCell;
+        midiHighCell.module = Module::Playback;
+        midiHighCell.bounds = toIntBounds (contextRow.items[midiHighItemIndex].currentBounds);
+        midiHighCell.valueText = juce::String (input.selectedSlice->midiNoteHigh);
+        midiHighCell.isContextInline = true;
+        midiHighCell.fieldId = IntersectProcessor::FieldMidiNoteHigh;
+        midiHighCell.currentValue = (float) input.selectedSlice->midiNoteHigh;
+        midiHighCell.minVal = (float) input.selectedSlice->midiNote;
+        midiHighCell.maxVal = (float) kMaxMidiNote;
+        midiHighCell.step = 1.0f;
+        midiHighCell.dragPerPixel = 0.25f;
+        addParamCell (midiHighCell);
         return;
     }
 
@@ -1497,6 +1537,13 @@ void SignalChainBar::paint (juce::Graphics& g)
         g.setFont (IntersectLookAndFeel::makeFont (13.0f, true));
         g.setColour (getTheme().text0);
         g.drawText (juce::String::charToString (0x00B7), contextDot2Bounds, juce::Justification::centred);
+    }
+
+    if (contextMidiToBounds.getWidth() > 0)
+    {
+        g.setFont (IntersectLookAndFeel::makeFont (8.0f, false));
+        g.setColour (getTheme().text0.withAlpha (0.6f));
+        g.drawText ("to", contextMidiToBounds, juce::Justification::centred);
     }
 
     if (contextSubtitle.isNotEmpty() && infoX < infoBounds.getRight())

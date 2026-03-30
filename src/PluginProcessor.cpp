@@ -113,6 +113,7 @@ static Slice sanitiseRestoredSlice (Slice s)
         s.endSample = s.startSample + kMinSliceLengthSamples;
 
     s.midiNote = juce::jlimit (0, kMaxMidiNote, s.midiNote);
+    s.midiNoteHigh = juce::jlimit (s.midiNote, kMaxMidiNote, s.midiNoteHigh);
     s.bpm = juce::jlimit (20.0f, 999.0f, s.bpm);
     s.pitchSemitones = juce::jlimit (-48.0f, 48.0f, s.pitchSemitones);
     s.algorithm = juce::jlimit (0, 2, s.algorithm);
@@ -144,7 +145,7 @@ static Slice sanitiseRestoredSlice (Slice s)
     return s;
 }
 
-constexpr int kCurrentStateVersion = 23;
+constexpr int kCurrentStateVersion = 24;
 constexpr std::array<double, 6> kLegacyCommonSampleRates { 44100.0, 48000.0, 88200.0,
                                                            96000.0, 176400.0, 192000.0 };
 
@@ -1370,6 +1371,12 @@ void IntersectProcessor::handleCommand (const Command& cmd)
                         break;
                     case FieldMidiNote:
                         s.midiNote = juce::jlimit (0, kMaxMidiNote, (int) val);
+                        if (s.midiNoteHigh < s.midiNote)
+                            s.midiNoteHigh = s.midiNote;
+                        sliceManager.rebuildMidiMap();
+                        break;
+                    case FieldMidiNoteHigh:
+                        s.midiNoteHigh = juce::jlimit (s.midiNote, kMaxMidiNote, (int) val);
                         sliceManager.rebuildMidiMap();
                         break;
                 }
@@ -2006,7 +2013,23 @@ void IntersectProcessor::processBlock (juce::AudioBuffer<float>& buffer,
 
             if (! isStateRestoreLoad
                 && latestLoadKind.load (std::memory_order_acquire) == (int) LoadKindReplace)
+            {
                 sliceManager.clearAll();
+                // Create default slice spanning entire audio with MIDI range 24-127
+                const int numFrames = sampleData.getNumFrames();
+                if (numFrames > 0)
+                {
+                    int idx = sliceManager.createSlice (0, numFrames);
+                    if (idx >= 0)
+                    {
+                        auto& s = sliceManager.getSlice (idx);
+                        s.midiNote = 24;
+                        s.midiNoteHigh = 127;
+                        sliceManager.rebuildMidiMap();
+                        sliceManager.selectedSlice = idx;
+                    }
+                }
+            }
             else
             {
                 applyPendingSliceTimelineRemap();
@@ -2229,6 +2252,8 @@ void IntersectProcessor::getStateInformation (juce::MemoryBlock& destData)
         // v23 fields
         stream.writeFloat (s.filterAsym);
         stream.writeInt ((int)(s.lockMask >> 32));
+        // v24 fields
+        stream.writeInt (s.midiNoteHigh);
     }
 
     // v9: store file path only (no PCM)
@@ -2277,7 +2302,7 @@ void IntersectProcessor::setStateInformation (const void* data, int sizeInBytes)
     pendingStateRestoreToken.store (0, std::memory_order_release);
 
     int version = stream.readInt();
-    if (version != 19 && version != 20 && version != 21 && version != 22 && version != kCurrentStateVersion)
+    if (version < 19 || version > kCurrentStateVersion)
     {
         setUiStatusMessage ("Unsupported project state version v" + juce::String (version)
                             + ". This build supports v19-v" + juce::String (kCurrentStateVersion) + ".",
@@ -2368,6 +2393,11 @@ void IntersectProcessor::setStateInformation (const void* data, int sizeInBytes)
             parsed.filterAsym = stream.readFloat();
             parsed.lockMask |= ((uint64_t)(uint32_t) stream.readInt() << 32);
         }
+
+        if (version >= 24)
+            parsed.midiNoteHigh = stream.readInt();
+        else
+            parsed.midiNoteHigh = parsed.midiNote;  // default to single note for older versions
 
         if (i < validatedNumSlices)
             sliceManager.getSlice (i) = sanitiseRestoredSlice (parsed);

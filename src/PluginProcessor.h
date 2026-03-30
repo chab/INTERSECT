@@ -121,6 +121,7 @@ public:
         FieldFilterEnvRelease,
         FieldFilterEnvAmount,
         FieldFilterAsym,
+        FieldMidiNoteHigh,
     };
 
     enum class MidiEditAction

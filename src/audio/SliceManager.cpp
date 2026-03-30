@@ -30,7 +30,8 @@ int SliceManager::createSlice (int start, int end)
     s.active      = true;
     s.startSample = start;
     s.endSample   = end;
-    s.midiNote    = nextMidiNote();
+    s.midiNote     = nextMidiNote();
+    s.midiNoteHigh = s.midiNote;  // default: single note range
     s.lockMask    = 0;
 
     // Default override values
@@ -106,12 +107,19 @@ void SliceManager::rebuildMidiMap()
     {
         if (slices[i].active)
         {
-            int note = slices[i].midiNote;
-            if (note >= 0 && note < kMidiNoteCount)
+            int noteLow  = slices[i].midiNote;
+            int noteHigh = slices[i].midiNoteHigh;
+            if (noteHigh < noteLow)
+                noteHigh = noteLow;  // ensure valid range
+
+            for (int note = noteLow; note <= noteHigh; ++note)
             {
-                if (midiMap[note] < 0)
-                    midiMap[note] = i;
-                midiMapMulti[note].push_back (i);
+                if (note >= 0 && note < kMidiNoteCount)
+                {
+                    if (midiMap[note] < 0)
+                        midiMap[note] = i;
+                    midiMapMulti[note].push_back (i);
+                }
             }
         }
     }
@@ -181,6 +189,9 @@ void SliceManager::repackMidiNotes (bool sortByPosition)
 
     int root = rootNote.load();
     for (int i = 0; i < numSlices; ++i)
+    {
         slices[i].midiNote = std::min (root + i, kMaxMidiNote);
+        slices[i].midiNoteHigh = slices[i].midiNote;  // reset to single note
+    }
     rebuildMidiMap();
 }

@@ -76,6 +76,7 @@ IntersectEditor::IntersectEditor (IntersectProcessor& p)
 
 IntersectEditor::~IntersectEditor()
 {
+    stopTimer();
     setLookAndFeel (nullptr);
 }
 

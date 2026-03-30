@@ -521,7 +521,9 @@ void VoicePool::startVoice (int voiceIdx, const VoiceStartParams& p,
     float sliceBpm = sm.resolveParam (sliceIdx, kLockBpm,   s.bpm,            p.globalBpm);
     float pitchSt  = sm.resolveParam (sliceIdx, kLockPitch,       s.pitchSemitones, p.globalPitch);
     float cents    = sm.resolveParam (sliceIdx, kLockCentsDetune, s.centsDetune,    p.globalCentsDetune);
-    float pitch    = pitchSt + cents / 100.0f;
+    // Keyboard transposition: offset from slice's base note
+    float keyboardTranspose = (float) (p.note - s.midiNote);
+    float pitch    = pitchSt + cents / 100.0f + keyboardTranspose;
     float pitchRatio = std::pow (2.0f, pitch / 12.0f);
 
     bool stretchOn = sm.resolveParam (sliceIdx, kLockStretch,

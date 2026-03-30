@@ -46,6 +46,7 @@ struct Slice
     int      startSample   = 0;
     int      endSample     = 0;
     int      midiNote      = kDefaultRootNote;
+    int      midiNoteHigh  = kDefaultRootNote;  // upper bound of MIDI range (inclusive)
     float    bpm           = 120.0f;
     float    pitchSemitones = 0.0f;
     int      algorithm     = 0;       // 0=Repitch, 1=Stretch, 2=Bungee

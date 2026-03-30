@@ -15,12 +15,12 @@ juce::AudioProcessorValueTreeState::ParameterLayout ParamLayout::createLayout()
         juce::NormalisableRange<float> (20.0f, 999.0f, 0.01f),
         120.0f));
 
-    // Sample Pitch: -48..+48 semitones, default 0
+    // Sample Pitch: -48..+48 semitones, default -36
     params.push_back (std::make_unique<juce::AudioParameterFloat> (
         juce::ParameterID { ParamIds::defaultPitch, 1 },
         "Sample Pitch",
         juce::NormalisableRange<float> (-48.0f, 48.0f, 0.01f),
-        0.0f));
+        -36.0f));
 
     // Sample Cents Detune: -100..+100 cents, step 0.1, default 0
     params.push_back (std::make_unique<juce::AudioParameterFloat> (

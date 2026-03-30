@@ -195,6 +195,7 @@ private:
     juce::Rectangle<int> contextStatusBounds;
     juce::Rectangle<int> contextDot1Bounds;
     juce::Rectangle<int> contextDot2Bounds;
+    juce::Rectangle<int> contextMidiToBounds;
     juce::Rectangle<int> contextSlicesBounds;
     juce::Rectangle<int> contextRootBounds;
     juce::Rectangle<int> moduleStripBounds;
